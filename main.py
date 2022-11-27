@@ -53,7 +53,7 @@ def update_button_callback():
   duration = np.round((datetime.now() - latest).total_seconds() /3600, 2)
   st.write('Updated', duration, 'hours ago')
 
-  if duration > 24:
+  if duration > 0:
     st.text('Fetching new data. This may take a while ...')
     update_data()
   else:
