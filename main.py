@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from shroomdk import ShroomDK
 from datetime import datetime
+from plotly.subplots import make_subplots
 
 sdk = ShroomDK(st.secrets['sdk_key'])
 
@@ -41,7 +42,7 @@ def load_data():
     # GET NET DEPOSIT
     actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
     cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
-            'succeeded', 'action', 'amount']
+            'succeeded', 'action', 'amount', 'address']
     deposits = df.loc[actions, cols]
 
     deposits['amount'] = deposits['amount'].astype('float')/10**9
@@ -54,7 +55,7 @@ def load_data():
 
     actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
     cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
-            'succeeded', 'action', 'amount']
+            'succeeded', 'action', 'amount', 'address']
     withdrawals = df.loc[actions, cols]
 
     withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
@@ -70,46 +71,11 @@ def load_data():
 
     net['net_deposit'] = net['deposit'] - net['withdraw']
     net['stake_pool_name'] = net['stake_pool_name'].str.capitalize()
+    net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
+    net.sort_values(by = 'month', ascending = True)
     return df, net
 
-def get_net_volume():
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
-  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
-          'succeeded', 'action', 'amount']
-  deposits = df.loc[actions, cols]
-
-  deposits['amount'] = deposits['amount'].astype('float')/10**9
-  deposits = deposits[(deposits.succeeded == True)]
-
-  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
-  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
-  deposits = deposits.drop('block_timestamp', axis = 1)
-  deposits = deposits.groupby(['month', 'stake_pool_name']).sum().reset_index()
-
-  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
-  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
-          'succeeded', 'action', 'amount']
-  withdrawals = df.loc[actions, cols]
-
-  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
-  withdrawals = withdrawals[(withdrawals.succeeded == True)]
-  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
-  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
-  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
-  withdrawals = withdrawals.groupby(['month', 'stake_pool_name']).sum().reset_index()
-
-  net = deposits.merge(withdrawals, how='outer', left_on = ['month', 'stake_pool_name'], right_on = ['month', 'stake_pool_name'])
-  net = net.fillna(0)
-  net = net.rename(columns={'amount_x': 'deposit', 'amount_y': 'withdraw'})
-
-  net['net_deposit'] = net['deposit'] - net['withdraw']
-
-  #net['cumulative_net_deposit'] = net['deposit'].cumsum()
-  net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
-  net.sort_values(by = 'month', ascending = True)
-
-
-def dropdown(df): # Dropdown
+def dd_stake_pool_name(df): # Dropdown
   df.stake_pool_name = df.stake_pool_name.str.title()
   option = st.selectbox(
       'Select Staking Pool',
@@ -120,11 +86,11 @@ def dropdown(df): # Dropdown
 def dd_overview(df): # Dropdown
   option = st.selectbox(
       'Choose a Metric',
-      ['SOL Staked'])
+      ['SOL Staked', 'Stake Transaction'])
   # st.write('You selected:', option)
   return option
 
-def dropdown2(df): # Dropdown
+def dd_date_range(df): # Dropdown
   df.stake_pool_name = df.stake_pool_name.str.title()
   option = st.selectbox(
       'Select Date Range',
@@ -133,27 +99,21 @@ def dropdown2(df): # Dropdown
   return option
 
 def c_net_deposit(net):
-  #net['cumulative_net_deposit'] = net['deposit'].cumsum()
-  net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
-  net.sort_values(by = 'month', ascending = True)
   fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'Net SOL Deposit', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   st.plotly_chart(fig, use_container_width=True)
 
 def c_net_deposit2(net):
-    #net['cumulative_net_deposit'] = net['deposit'].cumsum()
-  net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
-  net.sort_values(by = 'month', ascending = True)
-  # fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'net_deposit')
   fig2 = px.bar(net, x='month', y='cumulative_net_deposit', color = 'stake_pool_name', title = 'Net SOL Deposit - Cumulative', color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
-  # st.plotly_chart(fig, use_container_width=True)
   st.plotly_chart(fig2, use_container_width=True)
 
-def i_total_staked(net):
+def i_total_staked(net, df):
   total_staked = sum(net['net_deposit'])
+
+  total_staker = df['address'].nunique()
 
   fig = go.Figure()
 
@@ -162,36 +122,70 @@ def i_total_staked(net):
       gauge = {'shape': "bullet"},
       # delta = {'reference': total_staked*0.95},
       value = total_staked,
-    # color='#1f77b4',
-      # number={"font":{"size":20}},
-      # domain = {'x': [0, 1], 'y': [0, 1]},
       domain = {'row': 0, 'column': 0},
       title = {'text': "SOL Staked"})
 
   fig4 = go.Indicator(
-      mode = 'number+delta',
+      mode = 'number',
       gauge = {'shape': "bullet"},
-      delta = {'reference': total_staked*0.95},
-      value = total_staked,
-    # color='#1f77b4',
-      # number={"font":{"size":20}},
-      # domain = {'x': [0, 1], 'y': [0, 1]},
+      value = total_staker,
       domain = {'row': 1, 'column': 0},
-      title = {'text': "SOL Staked"})
+      title = {'text': "Unique Stakers"})
 
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month']).nunique().reset_index()
+  deposits['stake_transactions'] = deposits['tx_id']
+  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+  cols = ['address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  withdrawals = df.loc[actions, cols]
+  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+  withdrawals = withdrawals[(withdrawals.succeeded == True)]
+  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+  withdrawals = withdrawals.groupby(['month']).nunique().reset_index()
+  withdrawals['unstake_transactions'] = withdrawals['tx_id']
+  stake_tx = sum(deposits['stake_transactions'])
+
+  fig5 = go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = stake_tx,
+    # color='#1f77b4',
+      domain = {'row': 2, 'column': 0},
+      title = {'text': "SOL Stake Transactions"})
+
+  unstake_tx = sum(withdrawals['unstake_transactions'])
+
+  fig6 = go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = unstake_tx,
+    # color='#1f77b4',
+      domain = {'row': 3, 'column': 0},
+      title = {'text': "SOL Unstake Transactions"})
+
+  # fig3.show()
   fig.add_trace(fig3)
-  # fig.add_trace(fig4)
+  fig.add_trace(fig4)
+  fig.add_trace(fig5)
+  fig.add_trace(fig6)
 
   fig.update_layout(
-    grid = {'rows': 2, 'columns': 1, 'pattern': "independent"},
-    template = {'data' : {'indicator': [{
-        'title': {'text': "Speed"},
-        'mode' : "number+delta+gauge",
-        'delta' : {'reference': 90}}]
-                        }})
+    grid = {'rows': 4, 'columns': 1, 'pattern': "independent"}, height=1000)
       
   st.plotly_chart(fig, use_container_width=True)
-
 
 def c_market_share2(net):
   net2 = net.groupby(by = 'month').sum()
@@ -255,6 +249,59 @@ def update_button_callback():
   else: # data was recently updated
     st.text('Data is up to date! There is no need to fetch.')
 
+def c_stake_transactions(df):
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month']).nunique().reset_index()
+  deposits['stake_transactions'] = deposits['tx_id']
+  fig = px.bar(deposits, x='month', y='stake_transactions', title = 'Stake Transactions')
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
+
+def c_deposits_and_withdrawals(df):
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month']).nunique().reset_index()
+  deposits['stake_transactions'] = deposits['tx_id']
+  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+  cols = ['address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  withdrawals = df.loc[actions, cols]
+
+  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+  withdrawals = withdrawals[(withdrawals.succeeded == True)]
+  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+  withdrawals = withdrawals.groupby(['month']).nunique().reset_index()
+  withdrawals['unstake_transactions'] = withdrawals['tx_id']
+  #fig = px.bar(withdrawals, x='month', y='unstake_transactions', title = 'Unstake Transactions')
+  #fig.show()
+
+  fig = make_subplots(rows=1, cols=1)
+  fig.add_trace(go.Bar(name = "Stake Transactions", x=deposits['month'], y=deposits["stake_transactions"]), row=1, col=1)
+  fig.add_trace(go.Bar(name = "Unstake Transactions", x=withdrawals['month'], y=withdrawals["unstake_transactions"]), row=1, col=1)
+  fig.update_layout(title = 'Stake and Unstake Transactions by Month')
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
 
 #LOAD CSVs
 df, net = load_data()
@@ -262,49 +309,37 @@ df, net = load_data()
 #DEPLOY WIDGETS
 overview, comparison, user_analysis, about = st.tabs(["Overview", 'Comparison', 'User Analysis', "About"])
 
-col61, col62 = st.columns([3,2]) 
-col21, col22 = st.columns(2)
-
-col31, col32, col33 = st.columns(3)
-
-col41, col42, col43, col44 = st.columns(4)
-
-col51, col52, col53 = st.columns([1,2,2])
-
-
 
 
 with overview:
-
   st.header('Stake Pool')
-  dd_overview(df) 
+  option = dd_overview(df) 
 
-  # with st.container():   
-  #   with col61:
-  #     st.header('Overview')
-  #     dd_overview(df) 
-    
-  #   with col62:
-  #     st.header('Stake Pools')
+  # col61, col62 = st.columns([3,2]) 
+  # col21, col22 = st.columns(2)
+  # col31, col32, col33 = st.columns(3)
+  # col41, col42, col43, col44 = st.columns(4)
+  col51, col52, col53 = st.columns([1,2,2])
 
   with st.container():
     with col51:    
-      i_total_staked(net)
-      
+      i_total_staked(net, df)     
       
 
     with col52:      
-      c_net_deposit2(net)
-      c_net_deposit(net)
+
+      if option == 'SOL Staked':
+        c_net_deposit2(net)
+        c_net_deposit(net)
+
+      elif option == 'Stake Transaction':
+        c_stake_transactions(df)
+        c_deposits_and_withdrawals(df)
 
     with col53:
       c_market_share2(net)
       c_market_share(net)
       # c_net_deposit(net)
-
-  
-  
-
 
 with about:
   st.write("### Dashboard by ")
