@@ -231,7 +231,6 @@ def c_market_share(net):
   fig4 = px.area(monthly_net, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by SOL Staked', color_discrete_sequence=px.colors.qualitative.Prism)
   fig4.update_xaxes(showgrid=False)
   fig4.update_yaxes(showgrid=False)
-  # , height = 1000)
   st.plotly_chart(fig4, use_container_width=True)
 
 def update_button_callback():
@@ -249,7 +248,7 @@ def update_button_callback():
   else: # data was recently updated
     st.text('Data is up to date! There is no need to fetch.')
 
-def c_stake_transactions(df):
+def c_deposits_and_withdrawals_cumu(df):
   actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
   cols = ['address', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
@@ -262,10 +261,33 @@ def c_stake_transactions(df):
   deposits = deposits.drop('block_timestamp', axis = 1)
   deposits = deposits.groupby(['month']).nunique().reset_index()
   deposits['stake_transactions'] = deposits['tx_id']
-  fig = px.bar(deposits, x='month', y='stake_transactions', title = 'Stake Transactions')
-  fig.update_xaxes(showgrid=False)
-  fig.update_yaxes(showgrid=False)
-  st.plotly_chart(fig, use_container_width=True)
+
+  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  withdrawals = df.loc[actions, cols]
+
+  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+  withdrawals = withdrawals[(withdrawals.succeeded == True)]
+  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+  withdrawals = withdrawals.groupby(['month']).nunique().reset_index()
+  withdrawals['unstake_transactions'] = withdrawals['tx_id']
+  #fig = px.bar(withdrawals, x='month', y='unstake_transactions', title = 'Unstake Transactions')
+  #fig.show()
+
+  deposits['cumulative_deposit'] = deposits['stake_transactions'].cumsum()
+  withdrawals['cumulative_withdrawals'] = withdrawals['unstake_transactions'].cumsum()
+
+  fig2 = make_subplots(rows=1, cols=1)
+  fig2.add_trace(go.Bar(name = "Stake Transactions", x=deposits['month'], y=deposits["cumulative_deposit"]), row=1, col=1)
+  fig2.add_trace(go.Bar(name = "Unstake Transactions", x=withdrawals['month'], y=withdrawals["cumulative_withdrawals"]), row=1, col=1)
+  fig2.update_layout(title = 'Stake and Unstake Transactions by Month')
+  fig2.update_layout(barmode='stack')
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
 
 def c_deposits_and_withdrawals(df):
   actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
@@ -280,8 +302,9 @@ def c_deposits_and_withdrawals(df):
   deposits = deposits.drop('block_timestamp', axis = 1)
   deposits = deposits.groupby(['month']).nunique().reset_index()
   deposits['stake_transactions'] = deposits['tx_id']
+
   actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
-  cols = ['address', 'tx_id', 'block_timestamp',
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   withdrawals = df.loc[actions, cols]
 
@@ -299,9 +322,83 @@ def c_deposits_and_withdrawals(df):
   fig.add_trace(go.Bar(name = "Stake Transactions", x=deposits['month'], y=deposits["stake_transactions"]), row=1, col=1)
   fig.add_trace(go.Bar(name = "Unstake Transactions", x=withdrawals['month'], y=withdrawals["unstake_transactions"]), row=1, col=1)
   fig.update_layout(title = 'Stake and Unstake Transactions by Month')
+  fig.update_layout(barmode='stack')
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   st.plotly_chart(fig, use_container_width=True)
+
+def c_stake_transaction_market_share(df):
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).nunique().reset_index()
+  deposits['stake_pool_name'] = deposits['stake_pool_name'].str.capitalize()
+  deposits['cumulative_deposit_tx'] = deposits.groupby(['stake_pool_name'])['tx_id'].apply(lambda x: x.cumsum())
+
+  deposits2 = deposits.groupby(by = 'month').sum()
+  monthly_deposits = deposits.merge(deposits2, how='outer', left_on = ['month'], right_on = ['month'])
+  monthly_deposits['market_share'] =  monthly_deposits['cumulative_deposit_tx_x'] / monthly_deposits['cumulative_deposit_tx_y'] * 100
+  monthly_deposits = monthly_deposits[['month', 'stake_pool_name', 'market_share']]
+  fig2 = px.area(monthly_deposits, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Cumulative Stake Transactions')
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
+
+def c_top_share_stake_tx(df):
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).nunique().reset_index()
+  deposits['stake_pool_name'] = deposits['stake_pool_name'].str.capitalize()
+  deposits['cumulative_deposit_tx'] = deposits.groupby(['stake_pool_name'])['tx_id'].apply(lambda x: x.cumsum())
+
+  deposits2 = deposits.groupby(by = 'month').sum()
+  monthly_deposits = deposits.merge(deposits2, how='outer', left_on = ['month'], right_on = ['month'])
+  monthly_deposits['market_share'] =  monthly_deposits['cumulative_deposit_tx_x'] / monthly_deposits['cumulative_deposit_tx_y'] * 100
+  monthly_deposits = monthly_deposits[['month', 'stake_pool_name', 'market_share']]
+  recent_month = max(monthly_deposits['month'])
+  recent_month_data = monthly_deposits[(monthly_deposits.month == recent_month)]
+  recent_month_data = recent_month_data[(recent_month_data.market_share == max(recent_month_data.market_share))].reset_index()
+  recent_month_data = recent_month_data[['month', 'stake_pool_name', 'market_share']]
+  recent_month_data['market_share'] = recent_month_data['market_share'].astype('float')
+  recent_month_data['stake_pool_name'] = recent_month_data['stake_pool_name'].astype('string').str.capitalize()
+
+
+  fig5 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = recent_month_data['market_share'].iloc[0],
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': 'Top Market Share : ' + recent_month_data['stake_pool_name'].iloc[0]}))
+
+  df = monthly_deposits[monthly_deposits.stake_pool_name == recent_month_data['stake_pool_name'].iloc[0]].reset_index()
+  fig5.add_trace(go.Scatter(
+      x = df['month'], y = df['market_share'], name=recent_month_data['stake_pool_name'].iloc[0]))
+  fig5.update_xaxes(title_text='Date')
+  fig5.update_yaxes(title_text='Market Share in %')
+  fig5.update_layout(title="Top Market Share Stake Pool (in %)")
+  fig5.data[1].line.color = '#656EF2'
+  fig5.update_xaxes(showgrid=False)
+  fig5.update_yaxes(showgrid=False)
+  st.plotly_chart(fig5, use_container_width=True)
 
 #LOAD CSVs
 df, net = load_data()
@@ -324,7 +421,6 @@ with overview:
   with st.container():
     with col51:    
       i_total_staked(net, df)     
-      
 
     with col52:      
 
@@ -333,13 +429,18 @@ with overview:
         c_net_deposit(net)
 
       elif option == 'Stake Transaction':
-        c_stake_transactions(df)
         c_deposits_and_withdrawals(df)
+        c_deposits_and_withdrawals_cumu(df)
 
     with col53:
-      c_market_share2(net)
-      c_market_share(net)
+      if option == 'SOL Staked':
+        c_market_share2(net)
+        c_market_share(net)
       # c_net_deposit(net)
+      elif option == 'Stake Transaction':
+        c_top_share_stake_tx(df)
+        c_stake_transaction_market_share(df)
+        
 
 with about:
   st.write("### Dashboard by ")
