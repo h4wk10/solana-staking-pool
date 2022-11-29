@@ -6,7 +6,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from shroomdk import ShroomDK
 from datetime import datetime
-from millify import millify
 
 sdk = ShroomDK(st.secrets['sdk_key'])
 
