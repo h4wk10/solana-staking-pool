@@ -400,6 +400,27 @@ def c_top_share_stake_tx(df):
   fig5.update_yaxes(showgrid=False)
   st.plotly_chart(fig5, use_container_width=True)
 
+def c_net_stake_total(net):
+  net2 = net.groupby(by = ['month']).sum().reset_index()
+  net2['Inflow&Outflow'] = net2['net_deposit'].apply(lambda x: 'Positive Net Stake' if x > 0 else 'Negative Net Stake')
+
+
+  fig = px.bar(net2, x='month', y='net_deposit', color = 'Inflow&Outflow', title = 'Net SOL Staked - Monthly', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
+
+def c_net_stake_total_cumsum(net):
+  net2 = net.groupby(by = ['month']).sum().reset_index()
+  net2['cumulative_net_deposit'] = net2['net_deposit'].cumsum()
+
+  fig = px.bar(net2, x='month', y='cumulative_net_deposit', title = 'Net SOL Staked - Cumulative', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
+
+  net2['cumulative_net_deposit'] = net2['net_deposit'].cumsum()
+
 #LOAD CSVs
 df, net = load_data()
 
@@ -425,8 +446,11 @@ with overview:
     with col52:      
 
       if option == 'SOL Staked':
-        c_net_deposit2(net)
-        c_net_deposit(net)
+        # c_net_deposit2(net)
+        # c_net_deposit(net)
+        c_net_stake_total(net)
+        c_net_stake_total_cumsum(net)
+        
 
       elif option == 'Stake Transaction':
         c_deposits_and_withdrawals(df)
