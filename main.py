@@ -32,17 +32,99 @@ def update_data():
 
   fact_stake_pool_actions = fact_stake_pool_actions.reset_index(drop = True)
   fact_stake_pool_actions.to_csv('data/fact_stake_pool_actions.csv', index = False)
+
+  
   st.text('Staking Pool data is up to date!')
+
+  # UPDATE STAKER COUNT
+  st.text('Updating Stakers data ...')
+
+  sc = load_staker_count(fact_stake_pool_actions)
+  scp = load_staker_count_pool(fact_stake_pool_actions)  
+  
+  sc = sc.reset_index(drop = True)
+  sc.to_csv('data/sc.csv', index = False)
+
+  scp = scp.reset_index(drop = True)
+  scp.to_csv('data/scp.csv', index = False)
+
+  st.text('Stakers data is up to date!')
+
 
 def load_data():
     df = pd.read_csv(
         "data/fact_stake_pool_actions.csv"
     )
 
-    # GET NET DEPOSIT
+    #STAKER COUNT
+    sc = pd.read_csv(
+        "data/sc.csv"
+    )
+
+    #STAKER COUNT POOL
+    scp = pd.read_csv(
+        "data/scp.csv"
+    )
+
+    
+    return df, sc, scp
+
+def load_net(df):
+  # GET NET DEPOSIT
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount', 'address']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).sum().reset_index()
+
+  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount', 'address']
+  withdrawals = df.loc[actions, cols]
+
+  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+  withdrawals = withdrawals[(withdrawals.succeeded == True)]
+  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+  withdrawals = withdrawals.groupby(['month', 'stake_pool_name']).sum().reset_index()
+
+  net = deposits.merge(withdrawals, how='outer', left_on = ['month', 'stake_pool_name'], right_on = ['month', 'stake_pool_name'])
+  net = net.fillna(0)
+  net = net.rename(columns={'amount_x': 'deposit', 'amount_y': 'withdraw'})
+
+  net['net_deposit'] = net['deposit'] - net['withdraw']
+  net['stake_pool_name'] = net['stake_pool_name'].str.capitalize()
+  net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
+  net.sort_values(by = 'month', ascending = True)
+  return net
+
+def load_staker_count(df):
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  date = list(deposits['month'].unique())
+
+  staker_count_list = []
+  for i in date:
     actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
-    cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
-            'succeeded', 'action', 'amount', 'address']
+    cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
+            'succeeded', 'action', 'amount']
     deposits = df.loc[actions, cols]
 
     deposits['amount'] = deposits['amount'].astype('float')/10**9
@@ -51,29 +133,116 @@ def load_data():
     deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
     deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
     deposits = deposits.drop('block_timestamp', axis = 1)
-    deposits = deposits.groupby(['month', 'stake_pool_name']).sum().reset_index()
+    filtered_deposit = deposits.loc[deposits['month'] <= i]
+
+    deposits = filtered_deposit.groupby(['address', 'stake_pool_name']).sum().reset_index()
 
     actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
-    cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
-            'succeeded', 'action', 'amount', 'address']
+    cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
+            'succeeded', 'action', 'amount']
     withdrawals = df.loc[actions, cols]
 
     withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
     withdrawals = withdrawals[(withdrawals.succeeded == True)]
     withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
     withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
-    withdrawals = withdrawals.drop('block_timestamp', axis = 1)
-    withdrawals = withdrawals.groupby(['month', 'stake_pool_name']).sum().reset_index()
 
-    net = deposits.merge(withdrawals, how='outer', left_on = ['month', 'stake_pool_name'], right_on = ['month', 'stake_pool_name'])
+    withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+
+    filtered_withdrawals = withdrawals.loc[withdrawals['month'] <= i]
+    withdrawals = filtered_withdrawals.groupby(['address', 'stake_pool_name']).sum().reset_index()
+
+
+  # Net Deposits and Withdrawals
+    net = deposits.merge(withdrawals, how='left', left_on = ['address', 'stake_pool_name'], right_on = ['address', 'stake_pool_name']).drop(['succeeded_x', 'succeeded_y', 'stake_pool_name'], axis = 1)
     net = net.fillna(0)
     net = net.rename(columns={'amount_x': 'deposit', 'amount_y': 'withdraw'})
-
     net['net_deposit'] = net['deposit'] - net['withdraw']
-    net['stake_pool_name'] = net['stake_pool_name'].str.capitalize()
-    net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
-    net.sort_values(by = 'month', ascending = True)
-    return df, net
+    net = net.groupby(by = ['address']).sum().reset_index()
+    net['staker_status'] = net['net_deposit'].apply(lambda x: 1 if x > 0 else 0)
+    staker_count_list.append(net['staker_status'].sum())
+
+  # Staker Count
+  staker_count = {
+      'month' : date,
+      'staker_count' : staker_count_list
+  }
+
+  staker_count_df = pd.DataFrame(staker_count)
+  return staker_count_df
+
+def load_staker_count_pool(df):
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  date = list(deposits['month'].unique())
+
+  date_list = []
+  staker_count_list = []
+  stake_pool_name_list = []
+
+  staker_count = {
+      'date_stake' : date_list,
+      'staker_status' : staker_count_list,
+      'stake_pool_name' : stake_pool_name_list
+  }
+  staker_count_df = pd.DataFrame(staker_count)
+
+  for i in date:
+    actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+    cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
+            'succeeded', 'action', 'amount']
+    deposits = df.loc[actions, cols]
+
+    deposits['amount'] = deposits['amount'].astype('float')/10**9
+    deposits = deposits[(deposits.succeeded == True)]
+
+    deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+    deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+    deposits = deposits.drop('block_timestamp', axis = 1)
+    filtered_deposit = deposits.loc[deposits['month'] <= i]
+
+    deposits = filtered_deposit.groupby(['address', 'stake_pool_name']).sum().reset_index()
+
+    actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+    cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
+            'succeeded', 'action', 'amount']
+    withdrawals = df.loc[actions, cols]
+
+    withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+    withdrawals = withdrawals[(withdrawals.succeeded == True)]
+    withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+    withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+
+    withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+
+    filtered_withdrawals = withdrawals.loc[withdrawals['month'] <= i]
+    withdrawals = filtered_withdrawals.groupby(['address', 'stake_pool_name']).sum().reset_index()
+
+
+  # Net Deposits and Withdrawals
+    net = deposits.merge(withdrawals, how='left', left_on = ['address', 'stake_pool_name'], right_on = ['address', 'stake_pool_name']).drop(['succeeded_x', 'succeeded_y'], axis = 1)
+    net = net.fillna(0)
+    net = net.rename(columns={'amount_x': 'deposit', 'amount_y': 'withdraw'})
+    net['date_stake'] = i
+    net['net_deposit'] = net['deposit'] - net['withdraw']
+    net['stake_pool_name'] = net['stake_pool_name'].str.capitalize()  
+    net['staker_status'] = net['net_deposit'].apply(lambda x: 1 if x > 0 else 0)
+    net = net['stake_pool_name'].groupby([net.date_stake, net.address, net.deposit, net.withdraw, net.net_deposit, net.staker_status]).apply(list).reset_index()
+
+    net['stake_pool_name'] = [','.join(map(str, l)) for l in net['stake_pool_name']]
+
+    staker_count_df = staker_count_df.append(net)
+
+  staker_count_df = staker_count_df.groupby([staker_count_df.date_stake, staker_count_df.stake_pool_name]).sum().reset_index()
+  return staker_count_df
 
 def dd_stake_pool_name(df): # Dropdown
   df.stake_pool_name = df.stake_pool_name.str.title()
@@ -83,10 +252,18 @@ def dd_stake_pool_name(df): # Dropdown
   # st.write('You selected:', option)
   return option
 
+def dd_stake_multiselect(df):
+  options = st.multiselect(
+    'Select Staking Pool(s)',
+      df['stake_pool_name'].astype('string').str.capitalize().unique())
+
+  # st.write('You selected:', options)
+  return options
+
 def dd_overview(df): # Dropdown
   option = st.selectbox(
       'Choose a Metric',
-      ['SOL Staked', 'Stake Transaction'])
+      ['SOL Staked', 'Stake Transaction', 'Staker Count'])
   # st.write('You selected:', option)
   return option
 
@@ -421,8 +598,34 @@ def c_net_stake_total_cumsum(net):
 
   net2['cumulative_net_deposit'] = net2['net_deposit'].cumsum()
 
-#LOAD CSVs
-df, net = load_data()
+def c_staker_count(sc):
+
+  fig = px.bar(sc, x='month', y='staker_count', title = 'Staker Count', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
+
+def c_staker_market_share(sc):
+  net2 = sc.groupby(by = 'date_stake').sum().reset_index()
+
+  monthly_net = sc.merge(net2, how='outer', left_on = ['date_stake'], right_on = ['date_stake'])
+  monthly_net['market_share'] =  monthly_net['staker_status_x'] / monthly_net['staker_status_y'] * 100
+  monthly_net = monthly_net[['date_stake', 'stake_pool_name', 'market_share']]
+  fig4 = px.area(monthly_net, x='date_stake', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Staker', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig4.update_xaxes(showgrid=False)
+  fig4.update_yaxes(showgrid=False)
+  st.plotly_chart(fig4, use_container_width=True)
+
+#PAGE2
+def c_staker(scp):
+  fig = px.bar(scp, x='date_stake', y='staker_status', color = 'stake_pool_name', title = 'Staker Count by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
+
+#LOAD CSVs and Create DFs
+df, sc, scp = load_data()
+net = load_net(df)
 
 #DEPLOY WIDGETS
 overview, comparison, user_analysis, about = st.tabs(["Overview", 'Comparison', 'User Analysis', "About"])
@@ -456,7 +659,11 @@ with overview:
         c_deposits_and_withdrawals(df)
         c_deposits_and_withdrawals_cumu(df)
 
-    with col53:
+      elif option == 'Staker Count':
+        c_staker_count(sc)
+
+
+    with col53: 
       if option == 'SOL Staked':
         c_market_share2(net)
         c_market_share(net)
@@ -464,6 +671,15 @@ with overview:
       elif option == 'Stake Transaction':
         c_top_share_stake_tx(df)
         c_stake_transaction_market_share(df)
+
+      elif option == 'Staker Count':
+        c_staker_market_share(scp)
+
+with comparison:
+  st.header('Pool Comparison')
+  dd_stake_multiselect(df)
+  c_staker(scp)
+
         
 
 with about:
