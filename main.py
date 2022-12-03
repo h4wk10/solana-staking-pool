@@ -287,10 +287,8 @@ def c_net_deposit2(net):
   fig2.update_yaxes(showgrid=False)
   st.plotly_chart(fig2, use_container_width=True)
 
-def i_total_staked(net, df):
+def i_total_staked(net, df, sc):
   total_staked = sum(net['net_deposit'])
-
-  total_staker = df['address'].nunique()
 
   fig = go.Figure()
 
@@ -305,7 +303,7 @@ def i_total_staked(net, df):
   fig4 = go.Indicator(
       mode = 'number',
       gauge = {'shape': "bullet"},
-      value = total_staker,
+      value = sc.loc[sc['month'] == max(sc['month'])].staker_count.values[0],
       domain = {'row': 1, 'column': 0},
       title = {'text': "Unique Stakers"})
 
@@ -616,8 +614,43 @@ def c_staker_market_share(sc):
   fig4.update_yaxes(showgrid=False)
   st.plotly_chart(fig4, use_container_width=True)
 
+def c_top_staker_market_share(sc):
+  net2 = sc.groupby(by = 'date_stake').sum().reset_index()
+  monthly_net = sc.merge(net2, how='outer', left_on = ['date_stake'], right_on = ['date_stake'])
+  monthly_net['market_share'] =  monthly_net['staker_status_x'] / monthly_net['staker_status_y'] * 100
+  monthly_net = monthly_net[['date_stake', 'stake_pool_name', 'market_share']]
+  recent_month = max(monthly_net['date_stake'])
+  recent_month_data = monthly_net[(monthly_net.date_stake == recent_month)]
+  recent_month_data = recent_month_data[(recent_month_data.market_share == max(recent_month_data.market_share))].reset_index()
+  recent_month_data = recent_month_data[['date_stake', 'stake_pool_name', 'market_share']]
+  recent_month_data['market_share'] = recent_month_data['market_share'].astype('float')
+  recent_month_data['market_share'] = recent_month_data['market_share'].astype('float')
+  recent_month_data['stake_pool_name'] = recent_month_data['stake_pool_name'].astype('string').str.capitalize()
+  fig5 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = recent_month_data['market_share'].iloc[0],
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': 'Top Market Share : ' + recent_month_data['stake_pool_name'].iloc[0]}))
+
+  df = monthly_net[monthly_net.stake_pool_name == recent_month_data['stake_pool_name'].iloc[0]].reset_index()
+  fig5.add_trace(go.Scatter(
+      x = df['date_stake'], y = df['market_share']))
+  fig5.update_xaxes(title_text='Date')
+  fig5.update_yaxes(title_text='Market Share in %')
+  fig5.update_layout(title="Top Market Share Stake Pool (in %)")
+  fig5.update_xaxes(showgrid=False)
+  fig5.update_yaxes(showgrid=False)
+  fig5.data[1].line.color = 'purple'
+  st.plotly_chart(fig5, use_container_width=True)
+
 #PAGE2
-def c_staker(scp):
+def c_staker(scp, options):
+  # scp = scp[scp['stake_pool_name'].str.contains(options)]
+  scp = scp[scp['stake_pool_name'].isin(options)]
+
   fig = px.bar(scp, x='date_stake', y='staker_status', color = 'stake_pool_name', title = 'Staker Count by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
@@ -644,7 +677,7 @@ with overview:
 
   with st.container():
     with col51:    
-      i_total_staked(net, df)     
+      i_total_staked(net, df, sc)     
 
     with col52:      
 
@@ -673,12 +706,16 @@ with overview:
         c_stake_transaction_market_share(df)
 
       elif option == 'Staker Count':
+        c_top_staker_market_share(scp)
         c_staker_market_share(scp)
+        
 
 with comparison:
   st.header('Pool Comparison')
-  dd_stake_multiselect(df)
-  c_staker(scp)
+  options = dd_stake_multiselect(df)
+  if not options:
+    options = df['stake_pool_name'].astype('string').str.capitalize().unique()
+  c_staker(scp, options)
 
         
 
