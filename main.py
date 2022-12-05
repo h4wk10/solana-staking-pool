@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from shroomdk import ShroomDK
 from datetime import datetime
 from plotly.subplots import make_subplots
+from dateutil.relativedelta import relativedelta
 
 sdk = ShroomDK(st.secrets['sdk_key'])
 
@@ -66,8 +67,20 @@ def load_data():
         "data/scp.csv"
     )
 
+    sol_holdings_df = pd.read_csv(
+      'data/sol_holdings_df.csv'
+      )
+
+    funds_df = pd.read_csv(
+      'data/df_stake_pools_all_sources.csv'
+    )
+
+    protocol_df = pd.read_csv(
+      'data/protocol_interactions_df.csv'
+    )
+
     
-    return df, sc, scp
+    return df, sc, scp, sol_holdings_df, funds_df, protocol_df
 
 def load_net(df):
   # GET NET DEPOSIT
@@ -561,6 +574,7 @@ def c_top_share_stake_tx(df):
       #delta = {'reference': 0},
       value = recent_month_data['market_share'].iloc[0],
     # color='#1f77b4',
+      number = {"suffix": "%"},
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': 'Top Market Share : ' + recent_month_data['stake_pool_name'].iloc[0]}))
 
@@ -632,6 +646,7 @@ def c_top_staker_market_share(sc):
       #delta = {'reference': 0},
       value = recent_month_data['market_share'].iloc[0],
     # color='#1f77b4',
+      number = {"suffix": "%"},
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': 'Top Market Share : ' + recent_month_data['stake_pool_name'].iloc[0]}))
 
@@ -647,17 +662,580 @@ def c_top_staker_market_share(sc):
   st.plotly_chart(fig5, use_container_width=True)
 
 #PAGE2
-def c_staker(scp, options):
-  # scp = scp[scp['stake_pool_name'].str.contains(options)]
-  scp = scp[scp['stake_pool_name'].isin(options)]
-
+def c_staker(scp, result):
+  scp = scp.loc[scp['stake_pool_name'].str.contains(result, case=False)]
   fig = px.bar(scp, x='date_stake', y='staker_status', color = 'stake_pool_name', title = 'Staker Count by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   st.plotly_chart(fig, use_container_width=True)
 
+#PAGE3
+
+def dd_stake_pool(df):
+  options = st.selectbox(
+    'Select Staking Pool',
+      df['stake_pool_name'].astype('string').str.capitalize().unique())
+
+  # st.write('You selected:', options)
+  return options
+
+def dd_month(): # Dropdown
+  months = [
+    '2022-12',
+    '2022-11',
+    '2022-10',
+    '2022-09',
+    '2022-08',
+    '2022-07',
+    '2022-06',
+    '2022-05',
+    '2022-04',
+    '2022-03',
+    '2022-02',
+    '2022-01',
+    '2021-12',
+    '2021-11',
+    '2021-10',
+    '2021-09'
+]
+  option = st.selectbox(
+      'Select Month',
+      months) 
+  return option
+
+def i_analysis_stakers(df, option_stake_pool, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake_pool.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+
+  #df of deposits and df of withdraws
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+  withdraw_df = df_filtered[df_filtered["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_wallet_df = deposits_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_wallet_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_wallet_df = withdraw_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_wallet_df.sort_values(['address'], inplace = True)
+
+  net_stake_df = total_deposits_wallet_df.merge(total_withdraw_wallet_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_df = net_stake_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_df['withdraw_amount'] = net_stake_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_df['net_stake'] = net_stake_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_df[net_stake_df['net_stake']>0].index
+  net_stake_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_df[net_stake_df['net_stake']<=0].index
+  net_stake_df.loc[row_indexes,'status']="not staking"
+
+  staking_df = net_stake_df[net_stake_df["status"] == 'staking']
+
+  number_stakers = staking_df.address.nunique()
+
+  fig3 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = number_stakers,
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': "Current Number of Stakers"}))
+
+  st.plotly_chart(fig3, use_container_width=True)
+
+def i_analysis_new_stakers(df, option_stake_pool, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake_pool.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+
+  #group by withdraws by stake pool and address
+  earliest_stake_df = deposits_df.groupby(['address', 'stake_pool_name']).agg(min_date=('month', np.min)).reset_index()
+
+  # earliest_stake_df['min_month'] = earliest_stake_df.min_date.dt.strftime('%Y-%m')
+
+  new_stakers = earliest_stake_df[(earliest_stake_df.min_date == month_year_filter)]
+
+  number_stakers = new_stakers.address.nunique()
+
+  fig3 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = number_stakers,
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': "Number of New Stakers"}))
+
+  st.plotly_chart(fig3, use_container_width=True)
+
+def i_analysis_churn(df, option_stake, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+  df_filtered['deposit_amount'] = df_filtered.apply(lambda x: x.amount if x.action == 'deposit' else -x.amount, axis=1)
+
+  #https://stackoverflow.com/questions/25024797/max-and-min-date-in-pandas-groupby
+  net_deposits_last_df = df_filtered.groupby(['stake_pool_name','address']).agg(net_deposit=('deposit_amount', np.sum), last_date=('month', np.max)).reset_index()
+
+  zero_net_deposits_df = net_deposits_last_df[net_deposits_last_df['net_deposit'] <= 0]
+
+  # zero_net_deposits_df['month'] = zero_net_deposits_df.last_date.dt.strftime('%Y-%m')
+
+  zero_current_net_deposits_df = zero_net_deposits_df[(zero_net_deposits_df.last_date == month_year_filter)]
+
+  number_churn = zero_current_net_deposits_df.address.nunique()
+
+  fig3 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = number_churn,
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': "Number of Churn"}))
+
+  st.plotly_chart(fig3, use_container_width=True)
+
+def i_analysis_sol_holding(df, sol_holdings_df, option_stake, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+
+  #df of deposits and df of withdraws
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+  withdraw_df = df_filtered[df_filtered["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_wallet_df = deposits_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_wallet_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_wallet_df = withdraw_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_wallet_df.sort_values(['address'], inplace = True)
+
+  net_stake_df = total_deposits_wallet_df.merge(total_withdraw_wallet_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_df = net_stake_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_df['withdraw_amount'] = net_stake_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_df['net_stake'] = net_stake_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_df[net_stake_df['net_stake']>0].index
+  net_stake_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_df[net_stake_df['net_stake']<=0].index
+  net_stake_df.loc[row_indexes,'status']="not staking"
+
+  staking_df = net_stake_df[net_stake_df["status"] == 'staking']
+
+  current_stakers = list(set(staking_df['address'].tolist()))
+
+  sol_holdings_df.loc[sol_holdings_df.sol_amount.isna(), 'amount_type'] = 'a. No SOL related TX for current Month (inactive)'
+
+  sol_holdings_df['month_year'] = pd.to_datetime(sol_holdings_df.month_year).dt.strftime('%Y-%m')
+
+  sol_holdings_df_filtered = sol_holdings_df[(sol_holdings_df.month_year == month_year_filter)]
+
+  stakers = sol_holdings_df_filtered["wallet"].isin(current_stakers)
+  sol_holdings_df_filtered = sol_holdings_df_filtered.loc[stakers]
+
+  fig3 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = sol_holdings_df_filtered['sol_amount'].mean(),
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': "Average SOL Holdings"}))
+
+  st.plotly_chart(fig3, use_container_width=True)
+
+def c_sources_of_fund(df, funds_df, option_stake, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  date_filter = datetime.strptime(month_year_filter, '%Y-%m')
+  date_filter_last = date_filter + relativedelta(day=31)
+  mask = df['block_timestamp'] <= date_filter_last
+  df_filtered = df.loc[mask]
+  stake_pool = option_stake.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+
+  #df of deposits and df of withdraws
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+  withdraw_df = df_filtered[df_filtered["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_wallet_df = deposits_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_wallet_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_wallet_df = withdraw_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_wallet_df.sort_values(['address'], inplace = True)
+
+  net_stake_df = total_deposits_wallet_df.merge(total_withdraw_wallet_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_df = net_stake_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_df['withdraw_amount'] = net_stake_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_df['net_stake'] = net_stake_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_df[net_stake_df['net_stake']>0].index
+  net_stake_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_df[net_stake_df['net_stake']<=0].index
+  net_stake_df.loc[row_indexes,'status']="not staking"
+
+  staking_df = net_stake_df[net_stake_df["status"] == 'staking']
+
+  current_stakers = list(set(staking_df['address'].tolist()))
+
+  stakers = funds_df["wallet"].isin(current_stakers)
+  funds_df_filtered = funds_df.loc[stakers]
+
+  funds_count_df = funds_df_filtered.groupby(['sources']).agg(count_wallets=('wallet', 'nunique')).reset_index()
+
+  fig2 = px.histogram(funds_count_df.sort_values(by='count_wallets', ascending = False), x='sources', y='count_wallets', color='sources',
+              title='Sources of Funds', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig2.update_layout(xaxis_title='Source',
+                    yaxis_title='Count of Wallet')
+
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
+
+def c_sol_holdings(df, sol_holdings_df, option_stake, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+
+  #df of deposits and df of withdraws
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+  withdraw_df = df_filtered[df_filtered["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_wallet_df = deposits_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_wallet_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_wallet_df = withdraw_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_wallet_df.sort_values(['address'], inplace = True)
+
+  net_stake_df = total_deposits_wallet_df.merge(total_withdraw_wallet_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_df = net_stake_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_df['withdraw_amount'] = net_stake_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_df['net_stake'] = net_stake_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_df[net_stake_df['net_stake']>0].index
+  net_stake_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_df[net_stake_df['net_stake']<=0].index
+  net_stake_df.loc[row_indexes,'status']="not staking"
+
+  staking_df = net_stake_df[net_stake_df["status"] == 'staking']
+
+  current_stakers = list(set(staking_df['address'].tolist()))
+
+  sol_holdings_df.loc[sol_holdings_df.sol_amount.isna(), 'amount_type'] = 'a. Inactive for current Month'
+
+  sol_holdings_df['month_year'] = pd.to_datetime(sol_holdings_df.month_year).dt.strftime('%Y-%m')
+
+  sol_holdings_df_filtered = sol_holdings_df[(sol_holdings_df.month_year == month_year_filter)]
+
+  stakers = sol_holdings_df_filtered["wallet"].isin(current_stakers)
+  sol_holdings_df_filtered = sol_holdings_df_filtered.loc[stakers]
+
+  sol_holdings_count_df = sol_holdings_df_filtered.groupby(['amount_type']).agg(number_interactions=('wallet', 'count')).reset_index()
+
+  fig2 = px.histogram(sol_holdings_count_df.sort_values(by='amount_type'), x='amount_type', y='number_interactions', color='amount_type',
+              title='SOL Holdings', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig2.update_layout(xaxis_title='SOL Holdings',
+                    yaxis_title='Count of Wallet')
+  
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
+
+def c_protocol_interactions(df, protocol_df, option_stake, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+
+  #df of deposits and df of withdraws
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+  withdraw_df = df_filtered[df_filtered["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_wallet_df = deposits_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_wallet_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_wallet_df = withdraw_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_wallet_df.sort_values(['address'], inplace = True)
+
+  net_stake_df = total_deposits_wallet_df.merge(total_withdraw_wallet_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_df = net_stake_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_df['withdraw_amount'] = net_stake_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_df['net_stake'] = net_stake_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_df[net_stake_df['net_stake']>0].index
+  net_stake_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_df[net_stake_df['net_stake']<=0].index
+  net_stake_df.loc[row_indexes,'status']="not staking"
+
+  staking_df = net_stake_df[net_stake_df["status"] == 'staking']
+
+  current_stakers = list(set(staking_df['address'].tolist()))
+
+  protocol_interactions_df = protocol_df
+
+  protocol_interactions_df['month_year'] = pd.to_datetime(protocol_interactions_df.month_year).dt.strftime('%Y-%m')
+
+  protocol_interactions_df_filtered = protocol_interactions_df[(protocol_interactions_df.month_year == month_year_filter)]
+
+  stakers = protocol_interactions_df_filtered["wallet"].isin(current_stakers)
+  protocol_interactions_df_filtered = protocol_interactions_df_filtered.loc[stakers]
+
+  protocol_interactions_count_df = protocol_interactions_df_filtered.groupby(['protocol']).agg(number_interactions=('wallet', 'count')).reset_index()
+
+  fig2 = px.histogram(protocol_interactions_count_df.sort_values(by='number_interactions', ascending=False), x='protocol', y='number_interactions', color='protocol',
+              title='Protocol Wallet Interactions', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig2.update_layout(xaxis_title='Protocol',
+                    yaxis_title='Count of Wallet')
+  
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
+
+def c_stake_pool_crossover(df, option_stake, option_month):
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+
+  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
+  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
+
+  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
+  month_year_filter = option_month #filter input
+  # mask = df['block_timestamp'] <= datetime.strptime(month_year_filter, '%Y-%m-%d')
+  # df_filtered = df.loc[mask]
+  df_filtered = df[(df.month <= month_year_filter)]
+  stake_pool = option_stake.lower()
+  df_filtered = df_filtered[df_filtered['stake_pool_name'] == stake_pool]
+
+
+  #df of deposits and df of withdraws
+  deposits_df = df_filtered[df_filtered["action"] == 'deposit']
+  withdraw_df = df_filtered[df_filtered["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_wallet_df = deposits_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_wallet_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_wallet_df = withdraw_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_wallet_df.sort_values(['address'], inplace = True)
+
+  net_stake_df = total_deposits_wallet_df.merge(total_withdraw_wallet_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_df = net_stake_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_df['withdraw_amount'] = net_stake_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_df['net_stake'] = net_stake_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_df[net_stake_df['net_stake']>0].index
+  net_stake_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_df[net_stake_df['net_stake']<=0].index
+  net_stake_df.loc[row_indexes,'status']="not staking"
+
+  staking_df = net_stake_df[net_stake_df["status"] == 'staking']
+
+  current_stakers = list(set(staking_df['address'].tolist()))
+
+  df_crossover = df[(df.month <= month_year_filter)]
+  df_crossover = df_crossover[df_crossover['stake_pool_name'] != stake_pool]
+
+  stakers = df_crossover["address"].isin(current_stakers)
+  df_crossover = df_crossover.loc[stakers]
+
+  #df of deposits and df of withdraws
+  deposits_crossover_df = df_crossover[df_crossover["action"] == 'deposit']
+  withdraw_crossover_df = df_crossover[df_crossover["action"] == 'withdraw']
+
+  #group by deposits by stake pool and address
+  total_deposits_crossover_df = deposits_crossover_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_deposits_crossover_df.sort_values(['address'], inplace = True)
+
+  #group by withdraws by stake pool and address
+  total_withdraw_crossover_df = withdraw_crossover_df.groupby(['address', 'stake_pool_name', 'action'])['amount'].sum().reset_index()
+  total_withdraw_crossover_df.sort_values(['address'], inplace = True)
+
+  net_stake_crossover_df = total_deposits_crossover_df.merge(total_withdraw_crossover_df, on=['address', 'stake_pool_name'], how='left')
+
+  net_stake_crossover_df = net_stake_crossover_df.rename({'amount_x': 'deposit_amount', 'amount_y': 'withdraw_amount'}, axis=1)
+
+  net_stake_crossover_df['withdraw_amount'] = net_stake_crossover_df['withdraw_amount'].fillna(value=0)
+
+  net_stake_crossover_df['net_stake'] = net_stake_crossover_df.apply(lambda row: row.deposit_amount - row.withdraw_amount, axis=1)
+
+  #get whether wallet is currently staking by checking for net_stake > 0
+  row_indexes=net_stake_crossover_df[net_stake_crossover_df['net_stake']>0].index
+  net_stake_crossover_df.loc[row_indexes,'status']="staking"
+  row_indexes=net_stake_crossover_df[net_stake_crossover_df['net_stake']<=0].index
+  net_stake_crossover_df.loc[row_indexes,'status']="not staking"
+
+  staking_crossover_df = net_stake_crossover_df[net_stake_crossover_df["status"] == 'staking']
+
+  staking_crossover_count_df = staking_crossover_df.groupby(['stake_pool_name']).agg(count_wallets=('address', 'nunique')).reset_index()
+
+  fig2 = px.histogram(staking_crossover_count_df.sort_values(by='count_wallets', ascending = False), x='stake_pool_name', y='count_wallets', color='stake_pool_name',
+              title='Pools Crossover User Count', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig2.update_layout(xaxis_title='Stake Pool',
+                    yaxis_title='Count of Wallet')
+
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
+
 #LOAD CSVs and Create DFs
-df, sc, scp = load_data()
+df, sc, scp, sol_holdings_df, funds_df, protocol_df = load_data()
 net = load_net(df)
 
 #DEPLOY WIDGETS
@@ -715,7 +1293,48 @@ with comparison:
   options = dd_stake_multiselect(df)
   if not options:
     options = df['stake_pool_name'].astype('string').str.capitalize().unique()
-  c_staker(scp, options)
+  result = ""
+  for d in options:
+    result += d + '|'
+  result = result[:-1]
+  # st.write(result)
+  c_staker(scp, result)
+
+with user_analysis:
+  st.header('User Analysis')
+
+  p3_col21, p3_col22 = st.columns(2)
+  with p3_col21:
+    option_stake_pool = dd_stake_pool(df)
+
+  with p3_col22:
+    option_month = dd_month()
+
+  
+  p3_col21, p3_col22 = st.columns(2)
+
+  with p3_col21:
+    c_sources_of_fund(df, funds_df, option_stake_pool, option_month)
+    c_protocol_interactions(df, protocol_df, option_stake_pool, option_month)
+
+  with p3_col22:
+    c_sol_holdings(df, sol_holdings_df, option_stake_pool, option_month)
+    c_stake_pool_crossover(df, option_stake_pool, option_month)
+
+  p3_col41, p3_col42, p3_col43, p3_col44 = st.columns(4)
+
+  with p3_col41:
+    i_analysis_stakers(df, option_stake_pool, option_month)
+  
+  with p3_col42:
+    i_analysis_new_stakers(df, option_stake_pool, option_month)
+
+  with p3_col43:
+    i_analysis_churn(df, option_stake_pool, option_month)
+
+  with p3_col44:
+    i_analysis_sol_holding(df, sol_holdings_df, option_stake_pool, option_month)
+
 
         
 
