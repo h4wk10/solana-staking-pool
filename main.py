@@ -375,6 +375,21 @@ def i_total_staked(net, df, sc):
       
   st.plotly_chart(fig, use_container_width=True)
 
+def i_net_month(net):
+  recent_month = max(net['month'])
+  recent_month_data_net_deposit = net[(net.month == recent_month)]
+  recent_month_net_deposit = sum(recent_month_data_net_deposit['net_deposit'])
+
+  fig6 = go.Figure(go.Indicator(
+      mode = 'number',
+      gauge = {'shape': "bullet"},
+      #delta = {'reference': 0},
+      value = recent_month_net_deposit,
+    # color='#1f77b4',
+      domain = {'x': [0, 1], 'y': [0, 1]},
+      title = {'text': "Net Staked This Month"}))
+  st.plotly_chart(fig6, use_container_width=True)
+
 def c_market_share2(net):
   net2 = net.groupby(by = 'month').sum()
 
@@ -665,6 +680,73 @@ def c_top_staker_market_share(sc):
 def c_staker(scp, result):
   scp = scp.loc[scp['stake_pool_name'].str.contains(result, case=False)]
   fig = px.bar(scp, x='date_stake', y='staker_status', color = 'stake_pool_name', title = 'Staker Count by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  st.plotly_chart(fig, use_container_width=True)
+
+def c_stake_transaction(df, result):
+
+  df = df.loc[df['stake_pool_name'].str.contains(result, case=False)]
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).nunique().reset_index()
+  deposits['stake_pool_name'] = deposits['stake_pool_name'].str.capitalize()
+  deposits['cumulative_deposit_tx'] = deposits.groupby(['stake_pool_name'])['tx_id'].apply(lambda x: x.cumsum())
+
+  deposits['stake_transactions'] = deposits['tx_id']
+  fig3 = px.bar(deposits, x='month', y='stake_transactions', color = 'stake_pool_name', title = 'Stake Transactions by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig3.update_xaxes(showgrid=False)
+  fig3.update_yaxes(showgrid=False)
+  st.plotly_chart(fig3, use_container_width=True)
+
+def c_net_stake(df, result):
+  df = df.loc[df['stake_pool_name'].str.contains(result, case=False)]
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).sum().reset_index()
+
+  recent_month = max(deposits['month'])
+  before_deposits = deposits[(deposits.month < recent_month)]
+
+  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  withdrawals = df.loc[actions, cols]
+
+  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+  withdrawals = withdrawals[(withdrawals.succeeded == True)]
+  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+  withdrawals = withdrawals.groupby(['month', 'stake_pool_name']).sum().reset_index()
+  net = deposits.merge(withdrawals, how='outer', left_on = ['month', 'stake_pool_name'], right_on = ['month', 'stake_pool_name'])
+  net = net.fillna(0)
+  net = net.rename(columns={'amount_x': 'deposit', 'amount_y': 'withdraw'})
+
+  net['net_deposit'] = net['deposit'] - net['withdraw']
+  net['stake_pool_name'] = net['stake_pool_name'].str.capitalize()
+  #net['cumulative_net_deposit'] = net['deposit'].cumsum()
+  net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
+  net.sort_values(by = 'month', ascending = True)
+  fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'SOL Staked by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   st.plotly_chart(fig, use_container_width=True)
@@ -982,6 +1064,9 @@ def c_sources_of_fund(df, funds_df, option_stake, option_month):
   stakers = funds_df["wallet"].isin(current_stakers)
   funds_df_filtered = funds_df.loc[stakers]
 
+  funds_df_filtered['sources'] = funds_df_filtered['sources'].str.replace('Bridge', '')
+  funds_df_filtered['sources'] = funds_df_filtered['sources'].str.replace('SOL Transfer', '')
+
   funds_count_df = funds_df_filtered.groupby(['sources']).agg(count_wallets=('wallet', 'nunique')).reset_index()
 
   fig2 = px.histogram(funds_count_df.sort_values(by='count_wallets', ascending = False), x='sources', y='count_wallets', color='sources',
@@ -1224,6 +1309,7 @@ def c_stake_pool_crossover(df, option_stake, option_month):
   staking_crossover_df = net_stake_crossover_df[net_stake_crossover_df["status"] == 'staking']
 
   staking_crossover_count_df = staking_crossover_df.groupby(['stake_pool_name']).agg(count_wallets=('address', 'nunique')).reset_index()
+  staking_crossover_count_df['stake_pool_name'] = staking_crossover_count_df['stake_pool_name'].str.capitalize()
 
   fig2 = px.histogram(staking_crossover_count_df.sort_values(by='count_wallets', ascending = False), x='stake_pool_name', y='count_wallets', color='stake_pool_name',
               title='Pools Crossover User Count', color_discrete_sequence=px.colors.qualitative.Prism)
@@ -1287,6 +1373,9 @@ with overview:
         c_top_staker_market_share(scp)
         c_staker_market_share(scp)
         
+    col31, col32, col33 = st.columns(3)
+    with col31:
+      i_net_month(net)
 
 with comparison:
   st.header('Pool Comparison')
@@ -1298,7 +1387,9 @@ with comparison:
     result += d + '|'
   result = result[:-1]
   # st.write(result)
+  c_net_stake(df, result)
   c_staker(scp, result)
+  c_stake_transaction(df, result)
 
 with user_analysis:
   st.header('User Analysis')
@@ -1314,12 +1405,14 @@ with user_analysis:
   p3_col21, p3_col22 = st.columns(2)
 
   with p3_col21:
-    c_sources_of_fund(df, funds_df, option_stake_pool, option_month)
+    c_sol_holdings(df, sol_holdings_df, option_stake_pool, option_month)
     c_protocol_interactions(df, protocol_df, option_stake_pool, option_month)
 
   with p3_col22:
-    c_sol_holdings(df, sol_holdings_df, option_stake_pool, option_month)
     c_stake_pool_crossover(df, option_stake_pool, option_month)
+    c_sources_of_fund(df, funds_df, option_stake_pool, option_month)
+    
+    
 
   p3_col41, p3_col42, p3_col43, p3_col44 = st.columns(4)
 
