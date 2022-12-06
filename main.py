@@ -1145,7 +1145,7 @@ def c_sources_of_fund(df, funds_df, option_stake, option_month):
   funds_count_df = funds_df_filtered.groupby(['sources']).agg(count_wallets=('wallet', 'nunique')).reset_index()
 
   fig2 = px.histogram(funds_count_df.sort_values(by='count_wallets', ascending = False), x='sources', y='count_wallets', color='sources',
-              title='Sources of Funds', color_discrete_sequence=px.colors.qualitative.Prism)
+              title='Sources of Funds', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Source',
                     yaxis_title='Count of Wallet')
 
@@ -1217,7 +1217,7 @@ def c_sol_holdings(df, sol_holdings_df, option_stake, option_month):
   sol_holdings_count_df = sol_holdings_df_filtered.groupby(['amount_type']).agg(number_interactions=('wallet', 'count')).reset_index()
 
   fig2 = px.histogram(sol_holdings_count_df.sort_values(by='amount_type'), x='amount_type', y='number_interactions', color='amount_type',
-              title='SOL Holdings', color_discrete_sequence=px.colors.qualitative.Prism)
+              title='SOL Holdings', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='SOL Holdings',
                     yaxis_title='Count of Wallet')
   
@@ -1289,7 +1289,7 @@ def c_protocol_interactions(df, protocol_df, option_stake, option_month):
   protocol_interactions_count_df = protocol_interactions_df_filtered.groupby(['protocol']).agg(number_interactions=('wallet', 'count')).reset_index()
 
   fig2 = px.histogram(protocol_interactions_count_df.sort_values(by='number_interactions', ascending=False), x='protocol', y='number_interactions', color='protocol',
-              title='Protocol Wallet Interactions', color_discrete_sequence=px.colors.qualitative.Prism)
+              title='Protocol Wallet Interactions', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Protocol',
                     yaxis_title='Count of Wallet')
   
@@ -1388,7 +1388,7 @@ def c_stake_pool_crossover(df, option_stake, option_month):
   staking_crossover_count_df['stake_pool_name'] = staking_crossover_count_df['stake_pool_name'].str.capitalize()
 
   fig2 = px.histogram(staking_crossover_count_df.sort_values(by='count_wallets', ascending = False), x='stake_pool_name', y='count_wallets', color='stake_pool_name',
-              title='Pools Crossover User Count', color_discrete_sequence=px.colors.qualitative.Prism)
+              title='Pools Crossover User Count', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Stake Pool',
                     yaxis_title='Count of Wallet')
 
@@ -1471,8 +1471,8 @@ def c_stake_amount(df, option_stake, option_month):
 
   staking_cateogry_count_df = staking_df.groupby(['stake_amount_category']).agg(count_wallets=('address', 'nunique')).reset_index()
 
-  fig2 = px.histogram(staking_cateogry_count_df, x='stake_amount_category', y='count_wallets',
-              title='Amount of SOL Staked', color='stake_amount_category')
+  fig2 = px.histogram(staking_cateogry_count_df, x='stake_amount_category', y='count_wallets', log_y= True,
+              title='Amount of SOL Staked', color='stake_amount_category', color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Staked Amount',
                     yaxis_title='Number of Users')
 
@@ -1552,25 +1552,25 @@ def c_stake_duration(df, option_stake, option_month):
   def get_stake_duration_category(stake_duration):
 
     if stake_duration < 7:
-      return "a. duration < 1 week"
+      return "a. Stake < 1 Week"
     elif stake_duration < 30:
-      return "b. 1 week < duration < 1 month"
+      return "b. 1 Week < Stake < 1 Month"
     elif stake_duration < 90:
-      return "c. 1 month < duration < 3 months"
+      return "c. 1 Month < Stake < 3 Months"
     elif stake_duration < 180:
-      return "d. 3 months < duration < 6 months"
+      return "d. 3 Months < Stake < 6 Months"
     elif stake_duration < 360:
-      return "e. 6 months < duration < 1 year"
+      return "e. 6 Months < Stake < 1 Year"
     else:
-      return "f. 1 year < duration"
+      return "f. 1 Year < Stake"
 
   stake_duration_df['stake_duration_category'] = stake_duration_df['stake_duration'].apply(get_stake_duration_category)
 
   stake_duration_cateogry_count_df = stake_duration_df.groupby(['stake_duration_category']).agg(count_wallets=('address', 'nunique')).reset_index()
 
   fig2 = px.histogram(stake_duration_cateogry_count_df, x='stake_duration_category', y='count_wallets',
-              title='Stake Duration', color='stake_duration_category')
-  fig2.update_layout(xaxis_title='Stake Duration',
+              title='Platform Age of Staker', log_y= True, color='stake_duration_category', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig2.update_layout(xaxis_title='Platform Age',
                     yaxis_title='Number of Users')
   
   fig2.update_xaxes(showgrid=False)
@@ -1664,20 +1664,6 @@ with user_analysis:
     option_month = dd_month()
 
   
-  p3_col21, p3_col22 = st.columns(2)
-
-  with p3_col21:
-    c_stake_amount(df, option_stake_pool, option_month)
-    c_sol_holdings(df, sol_holdings_df, option_stake_pool, option_month)
-    c_protocol_interactions(df, protocol_df, option_stake_pool, option_month)
-
-  with p3_col22:
-    c_stake_duration(df, option_stake_pool, option_month)
-    c_stake_pool_crossover(df, option_stake_pool, option_month)
-    c_sources_of_fund(df, funds_df, option_stake_pool, option_month)
-    
-    
-
   p3_col41, p3_col42, p3_col43, p3_col44 = st.columns(4)
 
   with p3_col41:
@@ -1691,6 +1677,22 @@ with user_analysis:
 
   with p3_col44:
     i_analysis_sol_holding(df, sol_holdings_df, option_stake_pool, option_month)
+
+  df, sc, scp, sol_holdings_df, funds_df, protocol_df = load_data()
+  
+  p3_col21, p3_col22 = st.columns(2)
+
+  with p3_col21:
+    c_stake_amount(df, option_stake_pool, option_month)
+    c_sol_holdings(df, sol_holdings_df, option_stake_pool, option_month)
+    c_protocol_interactions(df, protocol_df, option_stake_pool, option_month)
+
+  with p3_col22:
+    c_stake_duration(df, option_stake_pool, option_month)
+    c_stake_pool_crossover(df, option_stake_pool, option_month)
+    c_sources_of_fund(df, funds_df, option_stake_pool, option_month)
+    
+    
 
 
         
