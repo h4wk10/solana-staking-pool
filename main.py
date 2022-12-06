@@ -84,7 +84,7 @@ def load_data():
 
 def load_net(df):
   # GET NET DEPOSIT
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount', 'address']
   deposits = df.loc[actions, cols]
@@ -120,7 +120,7 @@ def load_net(df):
   return net
 
 def load_staker_count(df):
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -135,7 +135,7 @@ def load_staker_count(df):
 
   staker_count_list = []
   for i in date:
-    actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+    actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
     cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
             'succeeded', 'action', 'amount']
     deposits = df.loc[actions, cols]
@@ -185,7 +185,7 @@ def load_staker_count(df):
   return staker_count_df
 
 def load_staker_count_pool(df):
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -209,7 +209,7 @@ def load_staker_count_pool(df):
   staker_count_df = pd.DataFrame(staker_count)
 
   for i in date:
-    actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+    actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
     cols = ['stake_pool_name', 'address', 'tx_id', 'block_timestamp',
             'succeeded', 'action', 'amount']
     deposits = df.loc[actions, cols]
@@ -320,7 +320,7 @@ def i_total_staked(net, df, sc):
       domain = {'row': 1, 'column': 0},
       title = {'text': "Unique Stakers"})
 
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['address', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -392,37 +392,24 @@ def i_net_month(net):
   st.plotly_chart(fig6, use_container_width=True)
 
 def i_active_wallet(df):
-  #transforms on the df
-  df['amount'] = df['amount'].astype('float')/10**9
-  df = df[(df.succeeded == True)]
   df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
   df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+  df = df.drop('block_timestamp', axis = 1)
+  df = df[(df.succeeded == True)] 
+  recent_month = max(df['month']) 
+  recent_month_active_wallets = df[(df.month == recent_month)]
+  recent_month_active_wallets_value = recent_month_active_wallets['address'].nunique()
 
-  recent_month = max(df['month'])
-
-  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
-  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
-
-  withdraw_actions = ['order_unstake', 'claim', 'withdraw_stake', 'withdraw', 'withdraw_dao', 'withdraw_dao_stake']
-  df.loc[df.action.isin(withdraw_actions), 'action'] = 'withdraw'
-
-  # dt.strptime('Jun 1 2005', '%Y-%m-%d').datetime()
-  month_year_filter = datetime.now().strftime('%Y-%m')
-  # df_filtered = df[(df.month == month_year_filter)]
-  df_filtered = df[(df.month <= month_year_filter)]
-
-  active_wallets = df_filtered.address.nunique()
-
-  fig3 = go.Figure(go.Indicator(
+  fig6 = go.Figure(go.Indicator(
       mode = 'number',
       gauge = {'shape': "bullet"},
       #delta = {'reference': 0},
-      value = active_wallets,
+      value = recent_month_active_wallets_value,
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Active Wallets This Month"}))
-  fig3.update_layout( height=280)
-  st.plotly_chart(fig3, use_container_width=True)
+  fig6.update_layout( height=280)
+  st.plotly_chart(fig6, use_container_width=True)
 
 def i_new_staker(df):
   #transforms on the df
@@ -528,7 +515,7 @@ def update_button_callback():
     st.text('Data is up to date! There is no need to fetch.')
 
 def c_deposits_and_withdrawals_cumu(df):
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['address', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -571,7 +558,7 @@ def c_deposits_and_withdrawals_cumu(df):
   st.plotly_chart(fig2, use_container_width=True)
 
 def c_deposits_and_withdrawals(df):
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['address', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -611,7 +598,7 @@ def c_deposits_and_withdrawals(df):
   st.plotly_chart(fig, use_container_width=True)
 
 def c_stake_transaction_market_share(df):
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -637,7 +624,7 @@ def c_stake_transaction_market_share(df):
   st.plotly_chart(fig2, use_container_width=True)
 
 def c_top_share_stake_tx(df):
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -768,7 +755,7 @@ def c_staker(scp, result):
 def c_stake_transaction(df, result):
 
   df = df.loc[df['stake_pool_name'].str.contains(result, case=False)]
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -791,7 +778,7 @@ def c_stake_transaction(df, result):
 
 def c_net_stake(df, result):
   df = df.loc[df['stake_pool_name'].str.contains(result, case=False)]
-  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake'])
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
@@ -831,6 +818,57 @@ def c_net_stake(df, result):
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   st.plotly_chart(fig, use_container_width=True)
+
+def c_market_share_comparison(net, result):
+  net = net.loc[net['stake_pool_name'].str.contains(result, case=False)]
+  net2 = net.groupby(by = 'month').sum()
+
+  monthly_net = net.merge(net2, how='outer', left_on = ['month'], right_on = ['month'])
+  monthly_net['market_share'] =  monthly_net['cumulative_net_deposit_x'] / monthly_net['cumulative_net_deposit_y'] * 100
+  monthly_net = monthly_net[['month', 'stake_pool_name', 'market_share']]
+  fig4 = px.area(monthly_net, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by SOL Staked', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig4.update_xaxes(showgrid=False)
+  fig4.update_yaxes(showgrid=False)
+  st.plotly_chart(fig4, use_container_width=True)
+
+def c_stake_transaction_market_share_comparison(df, result):
+  df = df.loc[df['stake_pool_name'].str.contains(result, case=False)]
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).nunique().reset_index()
+  deposits['stake_pool_name'] = deposits['stake_pool_name'].str.capitalize()
+  deposits['cumulative_deposit_tx'] = deposits.groupby(['stake_pool_name'])['tx_id'].apply(lambda x: x.cumsum())
+
+  deposits2 = deposits.groupby(by = 'month').sum()
+  monthly_deposits = deposits.merge(deposits2, how='outer', left_on = ['month'], right_on = ['month'])
+  monthly_deposits['market_share'] =  monthly_deposits['cumulative_deposit_tx_x'] / monthly_deposits['cumulative_deposit_tx_y'] * 100
+  monthly_deposits = monthly_deposits[['month', 'stake_pool_name', 'market_share']]
+  fig2 = px.area(monthly_deposits, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Cumulative Stake Transactions'
+  , color_discrete_sequence=px.colors.qualitative.Prism)
+  fig2.update_xaxes(showgrid=False)
+  fig2.update_yaxes(showgrid=False)
+  st.plotly_chart(fig2, use_container_width=True)
+
+def c_staker_market_share_comparison(scp, result):
+  scp = scp.loc[scp['stake_pool_name'].str.contains(result, case=False)]
+  net2 = scp.groupby(by = 'date_stake').sum().reset_index()
+
+  monthly_net = scp.merge(net2, how='outer', left_on = ['date_stake'], right_on = ['date_stake'])
+  monthly_net['market_share'] =  monthly_net['staker_status_x'] / monthly_net['staker_status_y'] * 100
+  monthly_net = monthly_net[['date_stake', 'stake_pool_name', 'market_share']]
+  fig4 = px.area(monthly_net, x='date_stake', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Staker', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig4.update_xaxes(showgrid=False)
+  fig4.update_yaxes(showgrid=False)
+  st.plotly_chart(fig4, use_container_width=True)
 
 #PAGE3
 
@@ -925,7 +963,7 @@ def i_analysis_stakers(df, option_stake_pool, option_month):
       value = number_stakers,
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
-      title = {'text': "Current Number of Stakers"}))
+      title = {'text': "Number of Stakers"}))
   fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
@@ -1654,9 +1692,16 @@ with comparison:
     result += d + '|'
   result = result[:-1]
   # st.write(result)
-  c_net_stake(df, result)
-  c_staker(scp, result)
-  c_stake_transaction(df, result)
+  p2_col21, p2_col22 = st.columns(2)
+  with p2_col21:
+    c_net_stake(df, result)
+    c_staker(scp, result)
+    c_stake_transaction(df, result)
+
+  with p2_col22:
+    c_market_share_comparison(net, result)
+    c_stake_transaction_market_share_comparison(df, result)
+    c_staker_market_share_comparison(scp, result)
 
 with user_analysis:
   df, sc, scp, sol_holdings_df, funds_df, protocol_df = load_data()
