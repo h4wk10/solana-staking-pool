@@ -388,6 +388,7 @@ def i_net_month(net):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Net Staked This Month"}))
+  fig6.update_layout( height=280)
   st.plotly_chart(fig6, use_container_width=True)
 
 def i_active_wallet(df):
@@ -420,7 +421,7 @@ def i_active_wallet(df):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Active Wallets This Month"}))
-
+  fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
 def i_new_staker(df):
@@ -462,7 +463,7 @@ def i_new_staker(df):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "New Stakers This Month"}))
-  
+  fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
 def c_market_share2(net):
@@ -492,7 +493,7 @@ def c_market_share2(net):
   df = monthly_net[monthly_net.stake_pool_name == recent_month_data['stake_pool_name'].iloc[0]].reset_index()
   fig5.add_trace(go.Scatter(
       x = df['month'], y = df['market_share'], name=recent_month_data['stake_pool_name'].iloc[0]))
-  fig5.data[1].line.color = 'purple'
+  fig5.data[1].line.color = '#5F4690'
   fig5.update_xaxes(title_text='Date')
   fig5.update_yaxes(title_text='Market Share in %')
   fig5.update_layout(title="Top Market Share Stake Pool (in %)")
@@ -565,6 +566,8 @@ def c_deposits_and_withdrawals_cumu(df):
   fig2.update_layout(barmode='stack')
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
+  fig2.data[0].marker.color = '#5F4690'
+  fig2.data[1].marker.color = '#1D6996'
   st.plotly_chart(fig2, use_container_width=True)
 
 def c_deposits_and_withdrawals(df):
@@ -603,6 +606,8 @@ def c_deposits_and_withdrawals(df):
   fig.update_layout(barmode='stack')
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
+  fig.data[0].marker.color = '#5F4690'
+  fig.data[1].marker.color = '#1D6996'
   st.plotly_chart(fig, use_container_width=True)
 
 def c_stake_transaction_market_share(df):
@@ -625,7 +630,8 @@ def c_stake_transaction_market_share(df):
   monthly_deposits = deposits.merge(deposits2, how='outer', left_on = ['month'], right_on = ['month'])
   monthly_deposits['market_share'] =  monthly_deposits['cumulative_deposit_tx_x'] / monthly_deposits['cumulative_deposit_tx_y'] * 100
   monthly_deposits = monthly_deposits[['month', 'stake_pool_name', 'market_share']]
-  fig2 = px.area(monthly_deposits, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Cumulative Stake Transactions')
+  fig2 = px.area(monthly_deposits, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Cumulative Stake Transactions'
+  , color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
   st.plotly_chart(fig2, use_container_width=True)
@@ -674,7 +680,7 @@ def c_top_share_stake_tx(df):
   fig5.update_xaxes(title_text='Date')
   fig5.update_yaxes(title_text='Market Share in %')
   fig5.update_layout(title="Top Market Share Stake Pool (in %)")
-  fig5.data[1].line.color = '#656EF2'
+  fig5.data[1].line.color = '#5F4690'
   fig5.update_xaxes(showgrid=False)
   fig5.update_yaxes(showgrid=False)
   st.plotly_chart(fig5, use_container_width=True)
@@ -748,7 +754,7 @@ def c_top_staker_market_share(sc):
   fig5.update_layout(title="Top Market Share Stake Pool (in %)")
   fig5.update_xaxes(showgrid=False)
   fig5.update_yaxes(showgrid=False)
-  fig5.data[1].line.color = 'purple'
+  fig5.data[1].line.color = '#5F4690'
   st.plotly_chart(fig5, use_container_width=True)
 
 #PAGE2
@@ -920,7 +926,7 @@ def i_analysis_stakers(df, option_stake_pool, option_month):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Current Number of Stakers"}))
-
+  fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
 def i_analysis_new_stakers(df, option_stake_pool, option_month):
@@ -963,7 +969,7 @@ def i_analysis_new_stakers(df, option_stake_pool, option_month):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Number of New Stakers"}))
-
+  fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
 def i_analysis_churn(df, option_stake, option_month):
@@ -1008,7 +1014,7 @@ def i_analysis_churn(df, option_stake, option_month):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Number of Churn"}))
-
+  fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
 def i_analysis_sol_holding(df, sol_holdings_df, option_stake, option_month):
@@ -1080,7 +1086,7 @@ def i_analysis_sol_holding(df, sol_holdings_df, option_stake, option_month):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Average SOL Holdings"}))
-
+  fig3.update_layout( height=280)
   st.plotly_chart(fig3, use_container_width=True)
 
 def c_sources_of_fund(df, funds_df, option_stake, option_month):
