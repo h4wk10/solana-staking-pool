@@ -289,7 +289,9 @@ def dd_date_range(df): # Dropdown
   return option
 
 def c_net_deposit(net):
-  fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'Net SOL Deposit', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'Net SOL Deposit', color_discrete_sequence=px.colors.qualitative.Prism
+  , labels=dict(x='Month'))
+  fig.update
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   st.plotly_chart(fig, use_container_width=True)
@@ -318,7 +320,7 @@ def i_total_staked(net, df, sc):
       gauge = {'shape': "bullet"},
       value = sc.loc[sc['month'] == max(sc['month'])].staker_count.values[0],
       domain = {'row': 1, 'column': 0},
-      title = {'text': "Unique Stakers"})
+      title = {'text': "Current Unique Stakers"})
 
   actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
   cols = ['address', 'tx_id', 'block_timestamp',
@@ -481,7 +483,7 @@ def c_market_share2(net):
   fig5.add_trace(go.Scatter(
       x = df['month'], y = df['market_share'], name=recent_month_data['stake_pool_name'].iloc[0]))
   fig5.data[1].line.color = '#5F4690'
-  fig5.update_xaxes(title_text='Date')
+  fig5.update_xaxes(title_text='Month')
   fig5.update_yaxes(title_text='Market Share in %')
   fig5.update_layout(title="Top Market Share Stake Pool (in %)")
   fig5.update_xaxes(showgrid=False)
@@ -495,6 +497,8 @@ def c_market_share(net):
   monthly_net['market_share'] =  monthly_net['cumulative_net_deposit_x'] / monthly_net['cumulative_net_deposit_y'] * 100
   monthly_net = monthly_net[['month', 'stake_pool_name', 'market_share']]
   fig4 = px.area(monthly_net, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by SOL Staked', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig4.update_xaxes(title_text='Month')
+  fig4.update_yaxes(title_text='Market Share in %')
   fig4.update_xaxes(showgrid=False)
   fig4.update_yaxes(showgrid=False)
   st.plotly_chart(fig4, use_container_width=True)
@@ -551,6 +555,8 @@ def c_deposits_and_withdrawals_cumu(df):
   fig2.add_trace(go.Bar(name = "Unstake Transactions", x=withdrawals['month'], y=withdrawals["cumulative_withdrawals"]), row=1, col=1)
   fig2.update_layout(title = 'Stake and Unstake Transactions by Month')
   fig2.update_layout(barmode='stack')
+  fig2.update_xaxes(title_text='Month')
+  fig2.update_yaxes(title_text='Transaction Count')
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
   fig2.data[0].marker.color = '#5F4690'
@@ -591,6 +597,8 @@ def c_deposits_and_withdrawals(df):
   fig.add_trace(go.Bar(name = "Unstake Transactions", x=withdrawals['month'], y=withdrawals["unstake_transactions"]), row=1, col=1)
   fig.update_layout(title = 'Stake and Unstake Transactions by Month')
   fig.update_layout(barmode='stack')
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Transaction Count - Cumulative')
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   fig.data[0].marker.color = '#5F4690'
@@ -621,6 +629,8 @@ def c_stake_transaction_market_share(df):
   , color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
+  fig2.update_xaxes(title_text='Month')
+  fig2.update_yaxes(title_text='Market Share in %')
   st.plotly_chart(fig2, use_container_width=True)
 
 def c_top_share_stake_tx(df):
@@ -664,7 +674,7 @@ def c_top_share_stake_tx(df):
   df = monthly_deposits[monthly_deposits.stake_pool_name == recent_month_data['stake_pool_name'].iloc[0]].reset_index()
   fig5.add_trace(go.Scatter(
       x = df['month'], y = df['market_share'], name=recent_month_data['stake_pool_name'].iloc[0]))
-  fig5.update_xaxes(title_text='Date')
+  fig5.update_xaxes(title_text='Month')
   fig5.update_yaxes(title_text='Market Share in %')
   fig5.update_layout(title="Top Market Share Stake Pool (in %)")
   fig5.data[1].line.color = '#5F4690'
@@ -680,6 +690,8 @@ def c_net_stake_total(net):
   fig = px.bar(net2, x='month', y='net_deposit', color = 'Inflow&Outflow', title = 'Net SOL Staked - Monthly', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Net Stake (SOL)')
   st.plotly_chart(fig, use_container_width=True)
 
 def c_net_stake_total_cumsum(net):
@@ -689,6 +701,8 @@ def c_net_stake_total_cumsum(net):
   fig = px.bar(net2, x='month', y='cumulative_net_deposit', title = 'Net SOL Staked - Cumulative', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Net Stake (SOL) - Cumulative')
   st.plotly_chart(fig, use_container_width=True)
 
   net2['cumulative_net_deposit'] = net2['net_deposit'].cumsum()
@@ -698,6 +712,8 @@ def c_staker_count(sc):
   fig = px.bar(sc, x='month', y='staker_count', title = 'Staker Count', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Staker Count')
   st.plotly_chart(fig, use_container_width=True)
 
 def c_staker_market_share(sc):
@@ -709,6 +725,8 @@ def c_staker_market_share(sc):
   fig4 = px.area(monthly_net, x='date_stake', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Staker', color_discrete_sequence=px.colors.qualitative.Prism)
   fig4.update_xaxes(showgrid=False)
   fig4.update_yaxes(showgrid=False)
+  fig4.update_xaxes(title_text='Month')
+  fig4.update_yaxes(title_text='Market Share in %')
   st.plotly_chart(fig4, use_container_width=True)
 
 def c_top_staker_market_share(sc):
@@ -736,7 +754,7 @@ def c_top_staker_market_share(sc):
   df = monthly_net[monthly_net.stake_pool_name == recent_month_data['stake_pool_name'].iloc[0]].reset_index()
   fig5.add_trace(go.Scatter(
       x = df['date_stake'], y = df['market_share']))
-  fig5.update_xaxes(title_text='Date')
+  fig5.update_xaxes(title_text='Month')
   fig5.update_yaxes(title_text='Market Share in %')
   fig5.update_layout(title="Top Market Share Stake Pool (in %)")
   fig5.update_xaxes(showgrid=False)
@@ -750,6 +768,8 @@ def c_staker(scp, result):
   fig = px.bar(scp, x='date_stake', y='staker_status', color = 'stake_pool_name', title = 'Staker Count by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Staker Count')
   st.plotly_chart(fig, use_container_width=True)
 
 def c_stake_transaction(df, result):
@@ -774,6 +794,8 @@ def c_stake_transaction(df, result):
   fig3 = px.bar(deposits, x='month', y='stake_transactions', color = 'stake_pool_name', title = 'Stake Transactions by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig3.update_xaxes(showgrid=False)
   fig3.update_yaxes(showgrid=False)
+  fig3.update_xaxes(title_text='Month')
+  fig3.update_yaxes(title_text='Transaction Count')
   st.plotly_chart(fig3, use_container_width=True)
 
 def c_net_stake(df, result):
@@ -783,7 +805,7 @@ def c_net_stake(df, result):
           'succeeded', 'action', 'amount']
   deposits = df.loc[actions, cols]
 
-  deposits['amount'] = deposits['amount'].astype('float')/10**9
+  deposits['amount'] = deposits['amount'].astype('float')
   deposits = deposits[(deposits.succeeded == True)]
 
   deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
@@ -799,7 +821,7 @@ def c_net_stake(df, result):
           'succeeded', 'action', 'amount']
   withdrawals = df.loc[actions, cols]
 
-  withdrawals['amount'] = withdrawals['amount'].astype('float')/10**9
+  withdrawals['amount'] = withdrawals['amount'].astype('float')
   withdrawals = withdrawals[(withdrawals.succeeded == True)]
   withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
   withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
@@ -817,6 +839,8 @@ def c_net_stake(df, result):
   fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'SOL Staked by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Net Stake (SOL)')
   st.plotly_chart(fig, use_container_width=True)
 
 def c_market_share_comparison(net, result):
@@ -829,6 +853,8 @@ def c_market_share_comparison(net, result):
   fig4 = px.area(monthly_net, x='month', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by SOL Staked', color_discrete_sequence=px.colors.qualitative.Prism)
   fig4.update_xaxes(showgrid=False)
   fig4.update_yaxes(showgrid=False)
+  fig4.update_xaxes(title_text='Month')
+  fig4.update_yaxes(title_text='Market Share in %')
   st.plotly_chart(fig4, use_container_width=True)
 
 def c_stake_transaction_market_share_comparison(df, result):
@@ -856,6 +882,8 @@ def c_stake_transaction_market_share_comparison(df, result):
   , color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
+  fig2.update_xaxes(title_text='Month')
+  fig2.update_yaxes(title_text='Market Share in %')
   st.plotly_chart(fig2, use_container_width=True)
 
 def c_staker_market_share_comparison(scp, result):
@@ -868,6 +896,8 @@ def c_staker_market_share_comparison(scp, result):
   fig4 = px.area(monthly_net, x='date_stake', y='market_share', color = 'stake_pool_name', title = 'Stake Pool Market Share by Staker', color_discrete_sequence=px.colors.qualitative.Prism)
   fig4.update_xaxes(showgrid=False)
   fig4.update_yaxes(showgrid=False)
+  fig4.update_xaxes(title_text='Month')
+  fig4.update_yaxes(title_text='Market Share in %')
   st.plotly_chart(fig4, use_container_width=True)
 
 #PAGE3
@@ -1191,7 +1221,7 @@ def c_sources_of_fund(df, funds_df, option_stake, option_month):
   fig2 = px.histogram(funds_count_df.sort_values(by='count_wallets', ascending = False), x='sources', y='count_wallets', color='sources',
               title='Sources of Funds', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Source',
-                    yaxis_title='Count of Wallet')
+                    yaxis_title='Wallet Count')
 
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
@@ -1263,7 +1293,7 @@ def c_sol_holdings(df, sol_holdings_df, option_stake, option_month):
   fig2 = px.histogram(sol_holdings_count_df.sort_values(by='amount_type'), x='amount_type', y='number_interactions', color='amount_type',
               title='SOL Holdings', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='SOL Holdings',
-                    yaxis_title='Count of Wallet')
+                    yaxis_title='Wallet Count')
   
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
@@ -1335,7 +1365,7 @@ def c_protocol_interactions(df, protocol_df, option_stake, option_month):
   fig2 = px.histogram(protocol_interactions_count_df.sort_values(by='number_interactions', ascending=False), x='protocol', y='number_interactions', color='protocol',
               title='Protocol Wallet Interactions', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Protocol',
-                    yaxis_title='Count of Wallet')
+                    yaxis_title='Wallet Count')
   
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
@@ -1518,7 +1548,7 @@ def c_stake_amount(df, option_stake, option_month):
   fig2 = px.histogram(staking_cateogry_count_df, x='stake_amount_category', y='count_wallets', log_y= True,
               title='Amount of SOL Staked', color='stake_amount_category', color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Staked Amount',
-                    yaxis_title='Number of Users')
+                    yaxis_title='Wallet Count')
 
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
@@ -1615,7 +1645,7 @@ def c_stake_duration(df, option_stake, option_month):
   fig2 = px.histogram(stake_duration_cateogry_count_df, x='stake_duration_category', y='count_wallets',
               title='Platform Age of Staker', log_y= True, color='stake_duration_category', color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Platform Age',
-                    yaxis_title='Number of Users')
+                    yaxis_title='Wallet Count')
   
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
@@ -1700,8 +1730,9 @@ with comparison:
 
   with p2_col22:
     c_market_share_comparison(net, result)
-    c_stake_transaction_market_share_comparison(df, result)
     c_staker_market_share_comparison(scp, result)
+    c_stake_transaction_market_share_comparison(df, result)
+    
 
 with user_analysis:
   df, sc, scp, sol_holdings_df, funds_df, protocol_df = load_data()
