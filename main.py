@@ -1691,9 +1691,18 @@ with overview:
   # col21, col22 = st.columns(2)
   # col31, col32, col33 = st.columns(3)
   # col41, col42, col43, col44 = st.columns(4)
-  col51, col52, col53 = st.columns([1,2,2])
+  
 
   with st.container():
+    col31, col32, col33 = st.columns(3)
+    with col31:
+      i_net_month(net)
+    with col32:
+      i_active_wallet(df)
+    with col33:
+      i_new_staker(df)
+
+    col51, col52, col53 = st.columns([1,2,2])
     with col51:    
       i_total_staked(net, df, sc)     
 
@@ -1728,13 +1737,7 @@ with overview:
         c_top_staker_market_share(scp)
         c_staker_market_share(scp)
         
-    col31, col32, col33 = st.columns(3)
-    with col31:
-      i_net_month(net)
-    with col32:
-      i_active_wallet(df)
-    with col33:
-      i_new_staker(df)
+
 
 with comparison:
   st.header('Pool Comparison')
