@@ -437,7 +437,8 @@ def i_new_staker(df):
   deposits_df = df_filtered[df_filtered["action"] == 'deposit']
 
   #group by withdraws by stake pool and address
-  earliest_stake_df = deposits_df.groupby(['address', 'stake_pool_name']).agg(min_date=('month', np.min)).reset_index()
+  # earliest_stake_df = deposits_df.groupby(['address', 'stake_pool_name']).agg(min_date=('month', np.min)).reset_index()
+  earliest_stake_df = deposits_df.groupby(['address']).agg(min_date=('month', np.min)).reset_index()
 
   # earliest_stake_df['min_month'] = earliest_stake_df.min_date.dt.strftime('%Y-%m')
 
@@ -714,6 +715,28 @@ def c_staker_count(sc):
   fig.update_yaxes(showgrid=False)
   fig.update_xaxes(title_text='Month')
   fig.update_yaxes(title_text='Staker Count')
+  st.plotly_chart(fig, use_container_width=True)
+
+def c_new_stakers(df):
+
+  deposit_actions = ['deposit_stake', 'deposit', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer']
+  df.loc[df.action.isin(deposit_actions), 'action'] = 'deposit'
+  deposits_df = df[df["action"] == 'deposit']
+
+  df = deposits_df[(deposits_df.succeeded == True)]
+  df = df.assign(occurence=np.where(~df['address'].duplicated(),'New','Existing'))
+  df['New_Wallets'] = 1
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+  df = df.drop('block_timestamp', axis = 1)
+  df = df[df.occurence == 'New']
+  df = df.groupby('month').sum().reset_index()
+
+  fig = px.bar(df, x='month', y='New_Wallets', title = 'New Stakers', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Wallet Count')
   st.plotly_chart(fig, use_container_width=True)
 
 def c_staker_market_share(sc):
@@ -1464,7 +1487,7 @@ def c_stake_pool_crossover(df, option_stake, option_month):
   fig2 = px.histogram(staking_crossover_count_df.sort_values(by='count_wallets', ascending = False), x='stake_pool_name', y='count_wallets', color='stake_pool_name',
               title='Pools Crossover User Count', log_y= True, color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_layout(xaxis_title='Stake Pool',
-                    yaxis_title='Count of Wallet')
+                    yaxis_title='Wallet Count')
 
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
@@ -1689,6 +1712,7 @@ with overview:
 
       elif option == 'Staker Count':
         c_staker_count(sc)
+        c_new_stakers(df)
 
 
     with col53: 
@@ -1773,11 +1797,6 @@ with user_analysis:
     c_stake_duration(df, option_stake_pool, option_month)
     c_stake_pool_crossover(df, option_stake_pool, option_month)
     c_sources_of_fund(df, funds_df, option_stake_pool, option_month)
-    
-    
-
-
-        
 
 with about:
   st.write("### Dashboard by ")
