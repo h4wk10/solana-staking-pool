@@ -20,7 +20,7 @@ def update_data():
   my_bar = st.progress(0)
   total = 7
   curr = 1
-  st.text(curr, '/', total, 'Updating Staking Pool data ...')
+  st.write(curr, '/', total, 'Updating Staking Pool data ...')
   sql_1 = f'''
   select *
   from solana.core.fact_stake_pool_actions
@@ -37,12 +37,12 @@ def update_data():
   fact_stake_pool_actions.to_csv('data/fact_stake_pool_actions.csv', index = False)
 
   
-  st.text('Staking Pool data is up to date!')
-  my_bar.progress(curr*(100/total))
+  st.write('Staking Pool data is up to date!')
+  my_bar.progress(curr/total)
   curr = curr + 1
 
   # UPDATE STAKER COUNT
-  st.text(curr, '/', total, 'Updating Stakers data ...')
+  st.write(curr, '/', total, 'Updating Stakers data ...')
 
   sc = load_staker_count(fact_stake_pool_actions)
   scp = load_staker_count_pool(fact_stake_pool_actions)  
@@ -53,55 +53,55 @@ def update_data():
   scp = scp.reset_index(drop = True)
   scp.to_csv('data/scp.csv', index = False)
 
-  st.text('Stakers data is up to date!')
+  st.write('Stakers data is up to date!')
   my_bar.progress(curr*(100/total))
   curr = curr + 1
 
   # UPDATE SOL HOLDINGS
-  st.text(curr, '/', total, 'Updating SOL Holdings data ...')
+  st.write(curr, '/', total, 'Updating SOL Holdings data ...')
 
   sol_holdings_df = load_sol_holdings(fact_stake_pool_actions)
   sol_holdings_df = sol_holdings_df.reset_index(drop = True)
   sol_holdings_df.to_csv('data\sol_holdings_df.csv', index = False)
 
-  st.text('SOL Holdings data is up to date!')
-  my_bar.progress(curr*(100/total))
+  st.write('SOL Holdings data is up to date!')
+  my_bar.progress(curr/total)
   curr = curr + 1
 
   # UPDATE Protocol Interactions
-  st.text(curr, '/', total, 'Updating Protocol Interactions data ...')
+  st.write(curr, '/', total, 'Updating Protocol Interactions data ...')
   protocol_interactions_df = load_protocol_interactions(fact_stake_pool_actions)
   protocol_interactions_df = protocol_interactions_df.reset_index(drop = True)
   protocol_interactions_df.to_csv('data\protocol_interactions_df.csv', index = False)
-  st.text('Protocol Interactions data is up to date!')
-  my_bar.progress(curr*(100/total))
+  st.write('Protocol Interactions data is up to date!')
+  my_bar.progress(curr/total)
   curr = curr + 1
 
   # UPDATE BRIDGERS
-  st.text(curr, '/', total, 'Updating Bridgers data ...')
+  st.write(curr, '/', total, 'Updating Bridgers data ...')
   eth_bridgers_df = load_bridge_sources(fact_stake_pool_actions)
   eth_bridgers_df = eth_bridgers_df.reset_index(drop = True)
   eth_bridgers_df.to_csv('data\eth_bridgers_df.csv', index = False)
-  st.text('Bridgers data is up to date!')
-  my_bar.progress(curr*(100/total))
+  st.write('Bridgers data is up to date!')
+  my_bar.progress(curr/total)
   curr = curr + 1
 
   # UPDATE sol_transfers_df
-  st.text(curr, '/', total, 'Updating sol_transfers_df data ...')
+  st.write(curr, '/', total, 'Updating sol_transfers_df data ...')
   sol_transfers_df = load_sol_transfer_sources(fact_stake_pool_actions)
   sol_transfers_df = sol_transfers_df.reset_index(drop = True)
   sol_transfers_df.to_csv('data\sol_transfers_df.csv', index = False)
-  st.text('sol_transfers_df data is up to date!')
-  my_bar.progress(curr*(100/total))
+  st.write('sol_transfers_df data is up to date!')
+  my_bar.progress(curr/total)
   curr = curr + 1
 
     # UPDATE ALL SOURCES
-  st.text(curr, '/', total, 'Updating ALL SOURCES data ...')
+  st.write(curr, '/', total, 'Updating ALL SOURCES data ...')
   df_all_sources = load_all_sources(eth_bridgers_df, sol_transfers_df)
   df_all_sources = df_all_sources.reset_index(drop = True)
   df_all_sources.to_csv('data\df_stake_pools_all_sources.csv', index = False)
-  st.text('ALL SOURCES data is up to date!')
-  my_bar.progress(curr*(100/total))
+  st.write('ALL SOURCES data is up to date!')
+  my_bar.progress(curr/total)
   curr = curr + 1
 
 def load_data():
@@ -455,7 +455,7 @@ def load_sol_holdings(df):
   num_months = (datetime.now().year - dt.datetime(2022,1,31).year) * 12 + datetime.now().month - dt.datetime(2022,1,31).month
 
   for i in range(0, num_months + 1):
-    sol_holdings_bar.progress(i*(100/num_months))
+    sol_holdings_bar.progress(i/num_months)
     date_needed = dt.datetime(2022,1,31) + relativedelta(months=+i)
     date_needed_string = date_needed.strftime('%Y-%m-%d')
 
@@ -2233,6 +2233,12 @@ with about:
   st.write('[banbannard](https://twitter.com/banbannard)')
   st.write('[Raine](https://twitter.com/0xSinten)')
   st.write('Data from [Flipside Crypto](https://flipsidecrypto.xyz/)')
+
+  duration = 0
+  latest = datetime.strptime(max(df.block_timestamp)[:-4], '%Y-%m-%d %H:%M:%S')
+  duration = np.round((datetime.now() - latest).total_seconds() /3600, 2)
+  st.write('Last Update was', duration, 'hours ago')
+
   if st.secrets['dev'] == 'YES':
     st.button('Update Data' , on_click = update_button_callback, help="Check for the latest database update in the last 24 hours") 
 
