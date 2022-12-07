@@ -8,7 +8,7 @@ from shroomdk import ShroomDK
 from datetime import datetime
 from plotly.subplots import make_subplots
 from dateutil.relativedelta import relativedelta
-
+import datetime as dt
 sdk = ShroomDK(st.secrets['sdk_key'])
 
 # SETTING PAGE CONFIG TO WIDE MODE AND ADDING A TITLE AND FAVICON
@@ -17,8 +17,10 @@ st.title('Solana Staking Pool - Live Dashboard')
 
 # SETUP
 def update_data():
-
-  st.text('Updating Staking Pool data ...')
+  my_bar = st.progress(0)
+  total = 7
+  curr = 1
+  st.text(curr, '/', total, 'Updating Staking Pool data ...')
   sql_1 = f'''
   select *
   from solana.core.fact_stake_pool_actions
@@ -36,9 +38,11 @@ def update_data():
 
   
   st.text('Staking Pool data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
 
   # UPDATE STAKER COUNT
-  st.text('Updating Stakers data ...')
+  st.text(curr, '/', total, 'Updating Stakers data ...')
 
   sc = load_staker_count(fact_stake_pool_actions)
   scp = load_staker_count_pool(fact_stake_pool_actions)  
@@ -50,7 +54,55 @@ def update_data():
   scp.to_csv('data/scp.csv', index = False)
 
   st.text('Stakers data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
 
+  # UPDATE SOL HOLDINGS
+  st.text(curr, '/', total, 'Updating SOL Holdings data ...')
+
+  sol_holdings_df = load_sol_holdings(fact_stake_pool_actions)
+  sol_holdings_df = sol_holdings_df.reset_index(drop = True)
+  sol_holdings_df.to_csv('data\sol_holdings_df.csv', index = False)
+
+  st.text('SOL Holdings data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
+
+  # UPDATE Protocol Interactions
+  st.text(curr, '/', total, 'Updating Protocol Interactions data ...')
+  protocol_interactions_df = load_protocol_interactions(fact_stake_pool_actions)
+  protocol_interactions_df = protocol_interactions_df.reset_index(drop = True)
+  protocol_interactions_df.to_csv('data\protocol_interactions_df.csv', index = False)
+  st.text('Protocol Interactions data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
+
+  # UPDATE BRIDGERS
+  st.text(curr, '/', total, 'Updating Bridgers data ...')
+  eth_bridgers_df = load_bridge_sources(fact_stake_pool_actions)
+  eth_bridgers_df = eth_bridgers_df.reset_index(drop = True)
+  eth_bridgers_df.to_csv('data\eth_bridgers_df.csv', index = False)
+  st.text('Bridgers data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
+
+  # UPDATE sol_transfers_df
+  st.text(curr, '/', total, 'Updating sol_transfers_df data ...')
+  sol_transfers_df = load_sol_transfer_sources(fact_stake_pool_actions)
+  sol_transfers_df = sol_transfers_df.reset_index(drop = True)
+  sol_transfers_df.to_csv('data\sol_transfers_df.csv', index = False)
+  st.text('sol_transfers_df data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
+
+    # UPDATE ALL SOURCES
+  st.text(curr, '/', total, 'Updating ALL SOURCES data ...')
+  df_all_sources = load_all_sources(eth_bridgers_df, sol_transfers_df)
+  df_all_sources = df_all_sources.reset_index(drop = True)
+  df_all_sources.to_csv('data\df_stake_pools_all_sources.csv', index = False)
+  st.text('ALL SOURCES data is up to date!')
+  my_bar.progress(curr*(100/total))
+  curr = curr + 1
 
 def load_data():
     df = pd.read_csv(
@@ -81,6 +133,379 @@ def load_data():
 
     
     return df, sc, scp, sol_holdings_df, funds_df, protocol_df
+
+def load_all_sources(eth_bridgers_df, sol_transfers_df):
+
+  df = pd.concat([sol_transfers_df, eth_bridgers_df])
+
+  wallets = {}
+
+  for index, row in df.iterrows():
+    if row['wallet'] in wallets:
+      source = wallets[row['wallet']]
+      source = source + " & " + row['source']
+      wallets[row['wallet']] = source
+    else:
+      wallets[row['wallet']] = row['source']
+
+  df_all_sources = pd.DataFrame(wallets.items(), columns=['wallet', 'sources'])
+
+  return df_all_sources
+
+def load_sol_transfer_sources(df):
+  sol_transfers_df = pd.DataFrame(columns=['date', 'wallet', 'amount', 'mint', 'source'])
+
+  #transforms on the df
+  df = df[(df.succeeded == True)]
+  addresses = list(set(df_filtered['address'].tolist()))
+
+  num_months = (datetime.now().year - dt.datetime(2020,3,31).year) * 12 + datetime.now().month - dt.datetime(2020,3,31).month
+
+  for i in range(0, num_months + 1):
+    date_needed = dt.datetime(2022,1,31) + relativedelta(months=+i)
+    last_day_string = date_needed.strftime('%Y-%m-%d')
+    first_day_string = date_needed.replace(day=1).strftime('%Y-%m-%d')
+
+    if len(addresses) == 0:
+      break
+
+    addresses_left = list(addresses)
+    
+    chunked_list = list()
+    chunk_size = 16000
+
+    wallets_to_remove = []
+
+
+    for i in range(0, len(addresses_left), chunk_size):
+        query_stakers = tuple(addresses_left[i:i+chunk_size])
+        sql_first_transfer = f"""
+          WITH base AS (
+            SELECT t.block_timestamp AS date, t.tx_to AS wallet, t.amount, 'SOL' AS mint,
+              CASE
+                WHEN l.blockchain = 'solana' AND l.label_type = 'cex' THEN 'CEX SOL Transfer'
+                ELSE 'Native SOL Transfer'
+              END AS source,
+              ROW_NUMBER() OVER(PARTITION BY t.tx_to, source ORDER BY t.block_timestamp ASC) AS row_number
+            FROM solana.core.fact_transfers t LEFT JOIN crosschain.core.address_labels l
+            ON t.tx_from = l.address
+            WHERE mint = 'So11111111111111111111111111111111111111112'
+            AND tx_to IN {query_stakers}
+            AND block_timestamp <= TO_TIMESTAMP('{last_day_string}')
+            AND block_timestamp >= TO_TIMESTAMP('{first_day_string}')
+          )
+          select date, wallet, amount, mint, source
+          from base
+          WHERE row_number = 1
+          ORDER BY wallet, source
+
+        """
+        first_transfer_result = sdk.query(sql_first_transfer)
+
+        if len(first_transfer_result.rows) == 0:
+          continue
+        else:
+          df_sol_transfers = pd.DataFrame(first_transfer_result.records)
+
+          sol_transfers_df = sol_transfers_df.append(df_sol_transfers)
+
+          wallets_to_remove.extend(list(set(df_sol_transfers['wallet'].tolist())))
+
+    for wallet in list(set(wallets_to_remove)):
+      try:
+        addresses.remove(wallet)
+      except:
+        continue
+        
+  return sol_transfers_df
+
+def load_bridge_sources(df):
+  eth_bridgers_df = pd.DataFrame(columns=['date', 'wallet', 'amount', 'mint', 'source'])
+
+
+  #transforms on the df
+  df = df[(df.succeeded == True)]
+  addresses = list(set(df_filtered['address'].tolist()))
+
+  num_months = (datetime.now().year - dt.datetime(2021,9,30).year) * 12 + datetime.now().month - dt.datetime(2021,9,30).month
+
+  for i in range(0, num_months + 1):
+    date_needed = dt.datetime(2022,1,31) + relativedelta(months=+i)
+    last_day_string = date_needed.strftime('%Y-%m-%d')
+    first_day_string = date_needed.replace(day=1).strftime('%Y-%m-%d')
+
+    if len(addresses) == 0:
+      break
+
+    addresses_left = list(addresses)
+    
+    chunked_list = list()
+    chunk_size = 16000
+
+    wallets_to_remove = []
+
+
+    for i in range(0, len(addresses_left), chunk_size):
+        query_stakers = tuple(addresses_left[i:i+chunk_size])
+        sql_eth_bridgers = f"""
+          with bridged_token as (
+            select 'AjkPkq3nsyDe1yKcbyZT7N4aK4Evv9om9tzhQD3wsRC' as address, '1INCH' as symbol, '1INCH Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '4ThReWAbAVZjNVgs5Ui9Pk3cZ5TYaD9u6Y89fp6EFzoF' as address, '1SOL' as symbol, '1sol.io (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '3vAs4D1WE6Na4tCgt4BApgFfENbm8WY7q4cSPD1yM4Cg' as address, 'AAVE' as symbol, 'Aave Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '12uHjozDVgyGWeLqQ8DMCRbig8amW5VmvZu3FdMMdcaG' as address, 'AKRO' as symbol, 'Akropolis (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '3UCMiSnkcnkPE1pgQ5ggPCBv6dXgVUy16TmMUe1WpG9x' as address, 'ALEPH' as symbol, 'Aleph.im (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '9ARQsBfAn65q522cEqSJuse3cLhA31jgWDBGQHeiq7Mg' as address, 'ALICE' as symbol, 'My Neighbor Alice (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'D559HwgjYGDYsXpmFUKxhFTEwutvS9sya1kXiyCVogCV' as address, 'AMP' as symbol, 'Amp (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EHKQvJGu48ydKA4d3RivrkNyTJTkSdoS32UafxSX1yak' as address, 'AMPL' as symbol, 'Ampleforth (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'Gq2norJ1kBemBp3mPfkgAUMhMMmnFmY4zEyi26tRcxFB' as address, 'ANKR' as symbol, 'Ankr (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '9LzCMqDgTKYz9Drzqnpgee3SGa89up3a247ypMj2xrqM' as address, 'AUDIO' as symbol, 'Audius (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HysWcbHiYY9888pHbaqhwLYZQeZrcQMXKQWRqS7zcPK5' as address, 'AXSet' as symbol, 'Axie Infinity Shard (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EPeUFDgHRxs9xxEPVaL6kfGQvCon7jmAWKVUHuux1Tpz' as address, 'BAT' as symbol, 'Basic Attention Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EDVVEYW4fPJ6vKw5LZXRGUSPzxoHrv6eWvTqhCr8oShs' as address, 'BNT' as symbol, 'Bancor Network Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '33fsBLA8djQm82RpHmE3SuVrPGtZBWNYExsEUeKX1HXX' as address, 'BUSDet' as symbol, 'Binance USD (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'nRtfwU9G82CSHhHGJNxFhtn7FLvWP2rqvQvje1WtL69' as address, 'CEL' as symbol, 'Celsius (Portal)' as name, 'eth' as origin, 'sol' as dest, 4.0 as decimal UNION
+            select '5TtSKAamFq88grN1QGrEaZ1AjjyciqnCya1aiMhAgFvG' as address, 'CHZ' as symbol, 'Chiliz (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'AwEauVaTMQRB71WeDnwf1DWSBxaMKjEPuxyLr1uixFom' as address, 'COMP' as symbol, 'Compound (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HihxL2iM6L6P1oqoSeiixdJ3PhPYNxvSKH9A2dDqLVDH' as address, 'CREAM' as symbol, 'Cream (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'DvjMYMVeXgKxaixGKpzQThLoG98nc7HSU7eanzsdCboA' as address, 'CRO' as symbol, 'Crypto.com Coin (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '7gjNiPun3AzEazTZoFEjZgcBMeuaXdpjHq2raZTmTrfs' as address, 'CRV' as symbol, 'Curve DAO Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'BLvmrccP4g1B6SpiVvmQrLUDya1nZ4B2D1nm9jzKF7sz' as address, 'CVX' as symbol, 'Convex Finance (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EjmyN6qEC1Tf1JxiG1ae7UTJhUxSwk1TCWNWqxWV4J6o' as address, 'DAI' as symbol, 'DAI (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '4Hx6Bj56eGyw8EJrrheM6LBQAvVYRikYCWsALeTrwyRU' as address, 'DYDX' as symbol, 'dYdX (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '6nKUU36URHkewHg5GGGAgxs6szkE4VTioGUT5txQqJFU' as address, 'ELON' as symbol, 'Dogelon Mars (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EXExWvT6VyYxEjFzF5BrUxt5GZMPVZnd48y3iWrRefMq' as address, 'ENJ' as symbol, 'EnjinCoin (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'CLQsDGoGibdNPnVCFp8BAsN2unvyvb41Jd5USYwAnzAg' as address, 'ENS' as symbol, 'Ethereum Name Service (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs' as address, 'ETH' as symbol, 'Ether (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'FR87nWEUxVgerFGhZM8Y4AggKGLnaXswr1Pd8wZ4kZcp' as address, 'FRAX' as symbol, 'Frax (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'A9ik2NrpKRRG2snyTjofZQcTuav9yH3mNVHLsLiDQmYt' as address, 'FRONT' as symbol, 'Frontier (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '8gC27rQF4NEDYfyf5aS8ZmQJUum5gufowKGYRRba4ENN' as address, 'FTMet' as symbol, 'Fantom (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EzfgjvkSwthhgHaceR3LnKXUoRkP6NUhfghdaHAj1tUv' as address, 'FTT' as symbol, 'FTX Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '6LX8BhMQ4Sy2otmAWj7Y5sKd9YTVVUgfMsBzT6B9W7ct' as address, 'FXS' as symbol, 'Frax Share (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'AuGz22orMknxQHTVGwAu7e3dJikTJKgcjFwMNDikEKmF' as address, 'GALA' as symbol, 'Gala (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HGsLG4PnZ28L8A4R5nPqKgZd86zUUdmfnkTRnuFJ5dAX' as address, 'GRT' as symbol, 'Graph Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'ABAq2R9gSpDDGguQxBk4u13s4ZYW6zbwKVBx15mCMG8' as address, 'GT' as symbol, 'GateToken (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '7dVH61ChzgmN9BwG4PkzwRP8PbYwPJ7ZPNF2vamKT2H8' as address, 'HBTC' as symbol, 'Huobi BTC (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '2ueY1bLcPHfuFzEJq7yN1V2Wrpu8nkun9xG2TVCE1mhD' as address, 'HGET' as symbol, 'Hedget (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HxhWkVpk5NS4Ltg5nij2G671CKXFRKPK8vy271Ub4uEK' as address, 'HXRO' as symbol, 'Hxro (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '7VQo3HFLNH5QqGtM8eC3XQbPkJUu7nS9LeGWjerRh5Sw' as address, 'HUSD' as symbol, 'HUSD Stablecoin (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'DiJut4U3CU8b3bRgwfyqtJMJ4wjzJHaX6hudamjH46Km' as address, 'ICE' as symbol, 'PopsicleToken (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '8UJbtpsEubDVkY53rk7d61hNYKkvouicczB2XmuwiG4g' as address, 'ILV' as symbol, 'Illuvium (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '64L6o4G2H7Ln1vN7AHZsUMW4pbFciHyuwn4wUdSbcFxh' as address, 'KEEP' as symbol, 'Keep Network (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '3a2VW9t5N6p4baMW3M6yLH1UJ9imMt7VsyUk6ouXPVLq' as address, 'KP3R' as symbol, 'Keep3rV1 (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HZRCwxP2Vq9PCpPXooayhJ2bxTpo5xfpQrwB1svh332p' as address, 'LDO' as symbol, 'Lido DAO (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '2wpTofQ8SkACrkZWrZDjXPitYa8AwWgX8AfxdeBRRVLX' as address, 'LINK' as symbol, 'Chainlink (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HCTVFTzHL21a1dPzKxAUeWwqbE8QMUyvgChFDL4XYoi1' as address, 'LRC' as symbol, 'Loopring (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '5Wc4U1ZoQRzF4tPdqKQzBwRSjYe8vEf3EvZMuXgtKUW6' as address, 'LUA' as symbol, 'LuaSwap (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '7dgHoN8wBZCc5wbnQ2C47TDnBMAxG4Q5L3KjP67z8kNi' as address, 'MANA' as symbol, 'Decentraland (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'CaGa7pddFXS65Gznqwp42kBhkJQdceoFVT7AQYo8Jr8Q' as address, 'MATH' as symbol, 'MATH Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'C7NNPWuZCNjZBfW5p6JvGsR8pUdsRpEdP1ZAhnoDwj7h' as address, 'MATICet' as symbol, 'MATIC (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HRQke5DKdDo3jV7wnomyiM8AA3EzkVnxMDdo2FQ5XUe1' as address, 'MIMet' as symbol, 'Magic Internet Money (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'Aqs5ydqKXEK2cjotDXxHmk8N9PknqQ5q4ZED4ymY1eeh' as address, 'NXM' as symbol, 'Nexus Mutual (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'C6oFsE8nXRDThzrMEQ5SxaNFGKoyyfWDDVPw37JKvPTe' as address, 'PAXG' as symbol, 'Paxos Gold (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '9BsnSWDPfbusseZfnXyZ3un14CyPMZYvsKjWY3Y8Gbqn' as address, 'PERP' as symbol, 'Perpetual Protocol (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'CobcsUrt3p91FwvULYKorQejgsm5HoQdv5T8RUZ6PnLA' as address, 'PEOPLE' as symbol, 'ConstitutionDAO (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'ASk8bss7PoxfFVJfXnSJepj9KupTX15QaRnhdjs6DdYe' as address, 'RGT' as symbol, 'Rari Governance Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'HUCyuyqESEUV4YWTKFvvB4JiQLqoovscTBpRXfGzW4Wx' as address, 'RPL' as symbol, 'Rocket Pool (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'DkbE8U4gSRuGHcVMA1LwyZPYUjYbfEbjW8DMR3iSXBzr' as address, 'RSR' as symbol, 'Reserve Rights (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '49c7WuCZkQgc3M4qH8WuEUNXfgwupZf1xqWkDQ7gjRGt' as address, 'SAND' as symbol, 'The Sandbox (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'CiKu4eHsVrc1eueVQeHn7qhXTcVu95gSQmBpX4utjL9z' as address, 'SHIB' as symbol, 'Shiba Inu (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '4hpngEp1v3CXpeKB81Gw4sv7YvwUVRKvY3SGag9ND8Q4' as address, 'SLP' as symbol, 'Smooth Love Potion (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '8cTNUtcV2ueC3royJ642uRnvTxorJAWLZc58gxAo7y56' as address, 'SNX' as symbol, 'Synthetix Network Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '6Q5fvsJ6kgAFmisgDqqyaFd9FURYzHf8MCUbpAUaGZnE' as address, 'SOS' as symbol, 'OpenDAO (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'BCsFXYm81iqXyYmrLKgAp3AePcgLHnirb8FjTs6sjM7U' as address, 'SPELL' as symbol, 'Spell Token (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'xnorPhAzWXUczCP3KjU5yDxmKKZi5cSbxytQ1LgE3kG' as address, 'SRMet' as symbol, 'Serum (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 6.0 as decimal UNION
+            select '5hcdG6NjQwiNhVa9bcyaaDsCyA1muPQ6WRzQwHfgeeKo' as address, 'SWAG' as symbol, 'SWAG Finance (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '3CyiEDRehaGufzkpXJitCP5tvh7cNhRqd9rPBxZrgK5z' as address, 'SXP' as symbol, 'Swipe (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'ChVzxWRmrTeSgwd3Ui3UumcN8KX7VK3WaD4KGeSKpypj' as address, 'SUSHI' as symbol, 'SushiToken (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '3EQ6LqLkiFcoxTeGEsHMFpSLWNVPe9yT7XPX2HYSFyxX' as address, 'TOKE' as symbol, 'Tokemak (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'DPgNKZJAG2w1S6vfYHDBT62R4qrWWH5f45CnxtbQduZE' as address, 'TRIBE' as symbol, 'Tribe (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'FTtXEUosNn6EKG2SQtfbGuYB4rBttreQQcoWn1YDsuTq' as address, 'UBXT' as symbol, 'UpBots (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'GWdkYFnXnSJAsCBvmsqFLiPPe2tpvXynZcJdxf11Fu3U' as address, 'UFO' as symbol, 'UFO Gaming (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select '8FU95xFJhUUkyyCLU13HSzDLs7oC4QZdXQHL6SCeab36' as address, 'UNI' as symbol, 'Uniswap (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'A9mUU4qviSctJVPJdBJWkb28deg915LYJKrzQ19ji3FM' as address, 'USDCet' as symbol, 'USD Coin (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 6.0 as decimal UNION
+            select '43m2ewFV5nDepieFjT9EmAQnc1HRtAF247RBpLGFem5F' as address, 'USDK' as symbol, 'USDK (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'Dn4noZ5jgGfkntzcQSUZ8czkreiZ1ForXYoV2H8Dm7S1' as address, 'USDTet' as symbol, 'Tether USD (Portal from Ethereum)' as name, 'eth' as origin, 'sol' as dest, 6.0 as decimal UNION
+            select '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh' as address, 'WBTC' as symbol, 'Wrapped BTC (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'BXZX2JRJFjvKazM1ibeDFxgAngKExb74MRXzXKvgikxX' as address, 'YFI' as symbol, 'yearn.finance (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'EzZp7LRN1xwu3QsB2RJRrWwEGjJGsuWzuMCeQDB3NSPK' as address, 'YGG' as symbol, 'Yield Guild Games (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'GJa1VeEYLTRoHbaeqcxfzHmjGCGtZGF3CUqxv9znZZAY' as address, 'ZRX' as symbol, '0x (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'CbNYA9n3927uXUukee2Hf4tm3xxkffJPPZvGazc2EAH1' as address, 'agEUR' as symbol, 'agEUR (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'FUGsN8H74WjRBBMfQWcf9Kk32gebA9VnNaGxqwcVvUW7' as address, 'gOHM' as symbol, 'Governance OHM (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'Bzq68gAVedKqQkQbsM28yQ4LYpc2VComDUD9wJBywdTi' as address, 'ibBTC' as symbol, 'Interest Bearing Bitcoin (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal UNION
+            select 'H2mf9QNdU2Niq6QR7367Ua2trBsvscLyX5bz7R3Pw5sE' as address, 'stETH' as symbol, 'Lido Staked Ether (Portal)' as name, 'eth' as origin, 'sol' as dest, 8.0 as decimal
+            ), wormhole_bridgers AS (
+              select block_timestamp AS date, instruction:accounts[0] AS wallet,
+              i.value:parsed:info:amount / POWER(10, b.decimal) AS amount,
+              symbol AS mint, 'Wormhole Bridge' AS source
+              from solana.core.fact_events e, LATERAL FLATTEN (input => inner_instruction:instructions) i
+              join bridged_token b on i.value:parsed:info:mint = b.address
+              where program_id = 'wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb'
+              and i.value:parsed:type = 'mintTo'
+              and succeeded = 'True'
+              and i.value:parsed:info:amount > 0
+              and instruction:accounts[0] in {query_stakers}
+              AND block_timestamp <= TO_TIMESTAMP('{last_day_string}')
+              AND block_timestamp >= TO_TIMESTAMP('{first_day_string}')
+            ), allbridge_bridgers AS (
+              select e.block_timestamp AS date, t.signers[0] AS wallet, 
+                CASE i.value:parsed:info:mint
+                  WHEN 'DdFPRnccQqLD4zCHrBqdY95D6hvw6PLWp9DEXj1fLCL9' THEN i.value:parsed:info:amount / POWER(10, 9)
+                  WHEN 'AaAEw2VCw1XzgvKB8Rj2DyK2ZVau9fbt2bE8hZFWsMyE' THEN i.value:parsed:info:amount / POWER(10, 9)
+                END AS amount,
+                CASE i.value:parsed:info:mint
+                  WHEN 'DdFPRnccQqLD4zCHrBqdY95D6hvw6PLWp9DEXj1fLCL9' THEN 'aeUSDC'
+                  WHEN 'AaAEw2VCw1XzgvKB8Rj2DyK2ZVau9fbt2bE8hZFWsMyE' THEN 'aeWETH'
+                END AS mint, 'Allbridge Bridge' AS source
+              from solana.core.fact_events e join solana.core.fact_transactions t on e.tx_id = t.tx_id, LATERAL FLATTEN (input => inner_instruction:instructions) i
+              where program_id = 'BBbD1WSjbHKfyE3TSFWF6vx1JV51c8msKSQy4ess6pXp'
+              and i.value:parsed:info:amount > 0
+              and i.value:parsed:info:mint IN ('DdFPRnccQqLD4zCHrBqdY95D6hvw6PLWp9DEXj1fLCL9', 'AaAEw2VCw1XzgvKB8Rj2DyK2ZVau9fbt2bE8hZFWsMyE')
+              and i.value:parsed:type = 'mintTo'
+              and e.succeeded = 'True'
+              and e.block_timestamp <= TO_TIMESTAMP('{last_day_string}')
+              and e.block_timestamp >= TO_TIMESTAMP('{first_day_string}')
+              and t.block_timestamp <= TO_TIMESTAMP('{last_day_string}')
+              and t.block_timestamp >= TO_TIMESTAMP('{first_day_string}')
+              and t.signers[0] in {query_stakers}
+            ), agg AS (
+              SELECT * FROM wormhole_bridgers
+              UNION
+              SELECT * FROM allbridge_bridgers
+            ), base AS (
+              SELECT date, wallet, amount, mint, source, ROW_NUMBER() OVER(PARTITION BY wallet, source ORDER BY date ASC) AS row_number
+              FROM agg
+            )
+            SELECT date, wallet, amount, mint, source
+            FROM base
+            WHERE row_number = 1
+            ORDER BY wallet, source
+        """
+        eth_bridgers_result = sdk.query(sql_eth_bridgers)
+
+        if len(eth_bridgers_result.rows) == 0:
+          continue
+        else:
+          eth_bridgers_df_temp = pd.DataFrame(eth_bridgers_result.records)
+
+          eth_bridgers_df = eth_bridgers_df.append(eth_bridgers_df_temp)
+
+          wallets_to_remove.extend(list(set(eth_bridgers_df['wallet'].tolist())))
+
+    for wallet in list(set(wallets_to_remove)):
+      try:
+        addresses.remove(wallet)
+      except:
+        continue
+        
+  return eth_bridgers_df
+  
+def load_protocol_interactions(df):
+  protocol_interactions_df = pd.DataFrame(columns=['wallet', 'protocol', 'month_year'])
+
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  num_months = (datetime.now().year - dt.datetime(2022,1,31).year) * 12 + datetime.now().month - dt.datetime(2022,1,31).month
+
+  for i in range(0, num_months + 1):
+    date_needed = dt.datetime(2022,1,31) + relativedelta(months=+i)
+    date_needed_string = date_needed.strftime('%Y-%m-%d')
+
+    mask = df['block_timestamp'] <= date_needed
+    df_filtered = df.loc[mask]
+    addresses = tuple(set(df_filtered['address'].tolist()))
+    
+    chunked_list = list()
+    chunk_size = 16000
+
+
+    for i in range(0, len(addresses), chunk_size):
+        query_stakers = tuple(addresses[i:i+chunk_size])
+        sql_protocol_interactions = f"""
+          select 
+          t.signers[0] as wallet,  initcap(l.label) as protocol, '{month_year_string}' AS month_year
+          from solana.core.fact_transactions t 
+            join solana.core.dim_labels l on t.instructions[0]:programId = l.address
+          WHERE block_timestamp >= TO_DATE('{month_year_string}') - 30 AND block_timestamp < TO_DATE('{month_year_string}') and l.label_subtype != 'token_contract' and l.label != 'solana' and t.succeeded = TRUE
+            and t.signers[0] in {query_stakers}
+          group by wallet, protocol
+        """
+
+        protocol_interactions_result = sdk.query(sql_protocol_interactions)
+
+        protocol_interactions_df_temp = pd.DataFrame(protocol_interactions_result.records)
+
+        protocol_interactions_df = protocol_interactions_df.append(protocol_interactions_df_temp)
+
+  return protocol_interactions_df
+  
+def load_sol_holdings(df):
+  sol_holdings_bar = st.progress(0)
+  sol_holdings_df = pd.DataFrame(columns=['wallet', 'token', 'sol_amount', 'amount_type', 'month_year'])
+
+  #transforms on the df
+  df['amount'] = df['amount'].astype('float')/10**9
+  df = df[(df.succeeded == True)]
+  df['block_timestamp'] = pd.to_datetime(df.block_timestamp)
+  df['month'] = df.block_timestamp.dt.strftime('%Y-%m')
+
+  num_months = (datetime.now().year - dt.datetime(2022,1,31).year) * 12 + datetime.now().month - dt.datetime(2022,1,31).month
+
+  for i in range(0, num_months + 1):
+    sol_holdings_bar.progress(i*(100/num_months))
+    date_needed = dt.datetime(2022,1,31) + relativedelta(months=+i)
+    date_needed_string = date_needed.strftime('%Y-%m-%d')
+
+    mask = df['block_timestamp'] <= date_needed
+    df_filtered = df.loc[mask]
+    addresses = tuple(set(df_filtered['address'].tolist()))
+    
+    chunked_list = list()
+    chunk_size = 16000
+
+
+    for i in range(0, len(addresses), chunk_size):
+        query_stakers = tuple(addresses[i:i+chunk_size])
+        sql_current_stakers_sol_holdings = f"""
+          WITH token_holdings AS (
+            SELECT block_timestamp, post_tokens.value:owner AS wallet, post_tokens.value:mint AS token, post_tokens.value:uiTokenAmount:uiAmount AS amount,
+              ROW_NUMBER() OVER (PARTITION BY wallet, token ORDER BY block_timestamp DESC) AS rn
+            FROM solana.core.fact_transactions, LATERAL FLATTEN(input => post_token_balances) post_tokens 
+            WHERE block_timestamp >= TO_DATE('{date_needed_string}') - 30 AND block_timestamp < TO_DATE('{date_needed_string}')
+            AND post_tokens.value:owner = wallet
+            AND wallet IN {query_stakers}
+            AND post_tokens.value:mint = 'So11111111111111111111111111111111111111112'
+            AND SUCCEEDED = 'True'
+            ORDER BY wallet, token, rn
+          ), 
+            
+          latest_holdings AS (
+            SELECT *
+            FROM token_holdings
+            WHERE rn = 1
+          )
+          SELECT wallet, token, trim(amount) as sol_amount,
+            CASE
+              WHEN sol_amount IS NULL THEN 'a. No SOL related TX Since last Month (inactive)'
+              WHEN sol_amount < 10 THEN 'b. SOL < 10'
+              WHEN sol_amount < 100 THEN 'c. 10 < SOL < 100'
+              WHEN sol_amount < 1000 THEN 'd. 100 < SOL < 1k'
+              WHEN sol_amount < 1000 THEN 'e. 1k < SOL < 10k'
+              ELSE 'f. SOL > 10k'
+            END AS amount_type, '{date_needed_string}' AS month_year
+          from latest_holdings
+        """
+
+        current_stakers_sol_holdings_result = sdk.query(sql_current_stakers_sol_holdings)
+
+        sol_holdings_df_temp = pd.DataFrame(current_stakers_sol_holdings_result.records)
+
+        sol_holdings_df = sol_holdings_df.append(sol_holdings_df_temp)
+
+  return sol_holdings_df
 
 def load_net(df):
   # GET NET DEPOSIT
@@ -410,7 +835,8 @@ def i_active_wallet(df):
     # color='#1f77b4',
       domain = {'x': [0, 1], 'y': [0, 1]},
       title = {'text': "Active Wallets This Month"}))
-  fig6.update_layout( height=280)
+
+  fig6.update_layout(height=280)
   st.plotly_chart(fig6, use_container_width=True)
 
 def i_new_staker(df):
@@ -686,13 +1112,13 @@ def c_top_share_stake_tx(df):
 def c_net_stake_total(net):
   net2 = net.groupby(by = ['month']).sum().reset_index()
   net2['Inflow&Outflow'] = net2['net_deposit'].apply(lambda x: 'Positive Net Stake' if x > 0 else 'Negative Net Stake')
-
-
   fig = px.bar(net2, x='month', y='net_deposit', color = 'Inflow&Outflow', title = 'Net SOL Staked - Monthly', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   fig.update_xaxes(title_text='Month')
   fig.update_yaxes(title_text='Net Stake (SOL)')
+  fig.update_layout(showlegend=False)
+
   st.plotly_chart(fig, use_container_width=True)
 
 def c_net_stake_total_cumsum(net):
@@ -1807,7 +2233,8 @@ with about:
   st.write('[banbannard](https://twitter.com/banbannard)')
   st.write('[Raine](https://twitter.com/0xSinten)')
   st.write('Data from [Flipside Crypto](https://flipsidecrypto.xyz/)')
-  st.button('Update Data' , on_click = update_button_callback, help="Check for the latest database update in the last 24 hours") 
+  if st.secrets['dev'] == 'YES':
+    st.button('Update Data' , on_click = update_button_callback, help="Check for the latest database update in the last 24 hours") 
 
 
 
