@@ -104,6 +104,16 @@ def update_data():
   my_bar.progress(curr/total)
   curr = curr + 1
 
+  # UPDATE Marinade Instant Unstaking
+  st.write(curr, '/', total, 'Updating Marinade Instant Unstaking data ...')
+  marinade_instant_unstaking = load_marinade_instant_unstaking()
+  marinade_instant_unstaking = marinade_instant_unstaking.reset_index(drop = True)
+  marinade_instant_unstaking.to_csv('data\marinade_instant_unstaking.csv', index = False)
+  st.write('ALL marinade_instant_unstaking data is up to date!')
+  my_bar.progress(curr/total)
+  curr = curr + 1
+
+
 def load_data():
     df = pd.read_csv(
         "data/fact_stake_pool_actions.csv"
@@ -133,6 +143,49 @@ def load_data():
 
     
     return df, sc, scp, sol_holdings_df, funds_df, protocol_df
+
+def load_marinade_instant_unstaking():
+  num_months = (datetime.now().year - dt.datetime(2021,8,31).year) * 12 + datetime.now().month - dt.datetime(2021,8,31).month
+  marinade_unstaking = pd.DataFrame()
+
+  for i in range(0, num_months + 1):
+    date_needed = dt.datetime(2021,8,31) + relativedelta(months=+i)
+    date_needed_string = date_needed.strftime('%Y-%m-%d')
+    print('Month', i, date_needed_string)
+    sql_marinade_unstaking = f"""
+    with base as (select distinct(tx_id) as tx_id
+      from solana.core.fact_transactions
+      where log_messages::string like '%LiquidUnstake%'
+      and block_timestamp >= TO_DATE('{date_needed_string}') - 30 AND block_timestamp < TO_DATE('{date_needed_string}')
+      and pre_token_balances[0]:mint = 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So'
+      and log_messages::string like '%msol%'
+      and succeeded = 'TRUE')
+
+      select date_trunc('month', block_timestamp) as months,
+      sum(amount) as amount_instant_unstake,
+      sum(amount_instant_unstake) over (order by months asc) as cum_amount_instant_unstake
+      from solana.core.fact_transfers
+      where tx_from = 'UefNb6z6yvArqe4cJHTXCqStRsKmWhGxnZzuHbikP5Q'
+      and block_timestamp >= TO_DATE('{date_needed_string}') - 30 AND block_timestamp < TO_DATE('{date_needed_string}')
+      and mint = 'So11111111111111111111111111111111111111112'
+      and tx_id in (select tx_id from base)
+      group by 1
+    """
+
+    current_marinade_unstaking = sdk.query(sql_marinade_unstaking)
+
+    marinade_unstaking_temp = pd.DataFrame(current_marinade_unstaking.records)
+
+    marinade_unstaking = marinade_unstaking.append(marinade_unstaking_temp)
+
+  marinade_unstaking = marinade_unstaking.sort_values(by=['months'])
+  temp_df = pd.DataFrame()
+  temp_df['amount_instant_unstake'] = marinade_unstaking.groupby('months')['amount_instant_unstake'].sum()
+  temp_df = temp_df.reset_index()
+  temp_df['cum_amount_instant_unstake'] = temp_df['amount_instant_unstake'].cumsum()
+  return temp_df
+
+
 
 def load_all_sources(eth_bridgers_df, sol_transfers_df):
 
@@ -725,6 +778,8 @@ def c_net_deposit2(net):
   fig2 = px.bar(net, x='month', y='cumulative_net_deposit', color = 'stake_pool_name', title = 'Net SOL Deposit - Cumulative', color_discrete_sequence=px.colors.qualitative.Prism)
   fig2.update_xaxes(showgrid=False)
   fig2.update_yaxes(showgrid=False)
+  fig2.update_xaxes(title_text='Month')
+  fig2.update_yaxes(title_text='Net Stake (SOL)')
   st.plotly_chart(fig2, use_container_width=True)
 
 def i_total_staked(net, df, sc):
@@ -1286,6 +1341,51 @@ def c_net_stake(df, result):
   net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
   net.sort_values(by = 'month', ascending = True)
   fig = px.bar(net, x='month', y='net_deposit', color = 'stake_pool_name', title = 'SOL Staked by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
+  fig.update_xaxes(showgrid=False)
+  fig.update_yaxes(showgrid=False)
+  fig.update_xaxes(title_text='Month')
+  fig.update_yaxes(title_text='Net Stake (SOL)')
+  st.plotly_chart(fig, use_container_width=True)
+
+def c_net_stake_cumsum(df, result):
+  df = df.loc[df['stake_pool_name'].str.contains(result, case=False)]
+  actions = df["action"].isin(['deposit', 'deposit_stake', 'deposit_dao', 'deposit_dao_stake', 'deposit_dao_with_referrer'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  deposits = df.loc[actions, cols]
+
+  deposits['amount'] = deposits['amount'].astype('float')
+  deposits = deposits[(deposits.succeeded == True)]
+
+  deposits['block_timestamp'] = pd.to_datetime(deposits.block_timestamp)
+  deposits['month'] = deposits.block_timestamp.dt.strftime('%Y-%m')
+  deposits = deposits.drop('block_timestamp', axis = 1)
+  deposits = deposits.groupby(['month', 'stake_pool_name']).sum().reset_index()
+
+  recent_month = max(deposits['month'])
+  before_deposits = deposits[(deposits.month < recent_month)]
+
+  actions = df["action"].isin(['withdraw', 'withdraw_stake', 'withdraw_dao', 'withdraw_dao_stake', 'claim'])
+  cols = ['stake_pool_name', 'tx_id', 'block_timestamp',
+          'succeeded', 'action', 'amount']
+  withdrawals = df.loc[actions, cols]
+
+  withdrawals['amount'] = withdrawals['amount'].astype('float')
+  withdrawals = withdrawals[(withdrawals.succeeded == True)]
+  withdrawals['block_timestamp'] = pd.to_datetime(withdrawals.block_timestamp)
+  withdrawals['month'] = withdrawals.block_timestamp.dt.strftime('%Y-%m')
+  withdrawals = withdrawals.drop('block_timestamp', axis = 1)
+  withdrawals = withdrawals.groupby(['month', 'stake_pool_name']).sum().reset_index()
+  net = deposits.merge(withdrawals, how='outer', left_on = ['month', 'stake_pool_name'], right_on = ['month', 'stake_pool_name'])
+  net = net.fillna(0)
+  net = net.rename(columns={'amount_x': 'deposit', 'amount_y': 'withdraw'})
+
+  net['net_deposit'] = net['deposit'] - net['withdraw']
+  net['stake_pool_name'] = net['stake_pool_name'].str.capitalize()
+  #net['cumulative_net_deposit'] = net['deposit'].cumsum()
+  net['cumulative_net_deposit'] = net.groupby(['stake_pool_name'])['net_deposit'].apply(lambda x: x.cumsum())
+  net.sort_values(by = 'month', ascending = True)
+  fig = px.bar(net, x='month', y='cumulative_net_deposit', color = 'stake_pool_name', title = 'SOL Staked by Stake Pool', color_discrete_sequence=px.colors.qualitative.Prism)
   fig.update_xaxes(showgrid=False)
   fig.update_yaxes(showgrid=False)
   fig.update_xaxes(title_text='Month')
@@ -2177,7 +2277,8 @@ with comparison:
   # st.write(result)
   p2_col21, p2_col22 = st.columns(2)
   with p2_col21:
-    c_net_stake(df, result)
+    # c_net_stake(df, result)
+    c_net_stake_cumsum(df, result)
     c_staker(scp, result)
     c_stake_transaction(df, result)
 
