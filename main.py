@@ -18,7 +18,7 @@ st.title('Solana Staking Pool - Live Dashboard')
 # SETUP
 def update_data():
   my_bar = st.progress(0)
-  total = 7
+  total = 8
   curr = 1
   st.write(curr, '/', total, 'Updating Staking Pool data ...')
   sql_1 = f'''
@@ -54,7 +54,7 @@ def update_data():
   scp.to_csv('data/scp.csv', index = False)
 
   st.write('Stakers data is up to date!')
-  my_bar.progress(curr*(100/total))
+  my_bar.progress(curr/total)
   curr = curr + 1
 
   # UPDATE SOL HOLDINGS
@@ -210,7 +210,7 @@ def load_sol_transfer_sources(df):
 
   #transforms on the df
   df = df[(df.succeeded == True)]
-  addresses = list(set(df_filtered['address'].tolist()))
+  addresses = list(set(df['address'].tolist()))
 
   num_months = (datetime.now().year - dt.datetime(2020,3,31).year) * 12 + datetime.now().month - dt.datetime(2020,3,31).month
 
@@ -278,7 +278,7 @@ def load_bridge_sources(df):
 
   #transforms on the df
   df = df[(df.succeeded == True)]
-  addresses = list(set(df_filtered['address'].tolist()))
+  addresses = list(set(df['address'].tolist()))
 
   num_months = (datetime.now().year - dt.datetime(2021,9,30).year) * 12 + datetime.now().month - dt.datetime(2021,9,30).month
 
@@ -479,10 +479,10 @@ def load_protocol_interactions(df):
         query_stakers = tuple(addresses[i:i+chunk_size])
         sql_protocol_interactions = f"""
           select 
-          t.signers[0] as wallet,  initcap(l.label) as protocol, '{month_year_string}' AS month_year
+          t.signers[0] as wallet,  initcap(l.label) as protocol, '{date_needed_string}' AS month_year
           from solana.core.fact_transactions t 
             join solana.core.dim_labels l on t.instructions[0]:programId = l.address
-          WHERE block_timestamp >= TO_DATE('{month_year_string}') - 30 AND block_timestamp < TO_DATE('{month_year_string}') and l.label_subtype != 'token_contract' and l.label != 'solana' and t.succeeded = TRUE
+          WHERE block_timestamp >= TO_DATE('{date_needed_string}') - 30 AND block_timestamp < TO_DATE('{date_needed_string}') and l.label_subtype != 'token_contract' and l.label != 'solana' and t.succeeded = TRUE
             and t.signers[0] in {query_stakers}
           group by wallet, protocol
         """
